@@ -1,6 +1,5 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { requireBearerAuth } from "../middleware/auth";
 import { runMonitor } from "../lib/monitor";
 import { badRequest } from "../lib/errors";
 import type { AppContext } from "../types";
@@ -12,8 +11,6 @@ const bodySchema = z
   .optional();
 
 const trigger = new Hono<AppContext>();
-
-trigger.use("*", requireBearerAuth);
 
 trigger.post("/trigger", async (c) => {
   let payload: unknown;

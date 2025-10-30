@@ -39,5 +39,18 @@ CREATE TABLE IF NOT EXISTS alerts (
 
 CREATE INDEX IF NOT EXISTS idx_alerts_symbol_window ON alerts(symbol, window_end);
 
+-- 用户表 - 用于存储以太坊钱包用户信息
+CREATE TABLE IF NOT EXISTS users (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  address TEXT NOT NULL UNIQUE,
+  nickname TEXT,
+  avatar_url TEXT,
+  preferences TEXT, -- JSON格式存储用户偏好设置
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_address ON users(address);
+
 INSERT OR IGNORE INTO symbols (symbol, enabled) VALUES ('BTCUSDT', 1);
 INSERT OR IGNORE INTO symbols (symbol, enabled) VALUES ('ETHUSDT', 1);

@@ -11,21 +11,23 @@ export interface CloudflareBindings {
   DB: D1Database;
   WEBHOOK_DEFAULT_URL?: string;
   WEBHOOK_HMAC_SECRET?: string;
-  ADMIN_BEARER_TOKEN?: string;
   BINANCE_BASE_URL?: string;
   HTTP_TIMEOUT_MS?: string;
   MAX_RETRIES?: string;
   RETRY_BACKOFF_BASE_MS?: string;
+  JWT_SECRET?: string;
+  ETH_NETWORK_ID?: string;
 }
 
 const envSchema = z.object({
   webhookDefaultUrl: z.string().url().default(DEFAULT_WEBHOOK_URL),
   webhookHmacSecret: z.string().min(8, "WEBHOOK_HMAC_SECRET must be at least 8 characters"),
-  adminBearerToken: z.string().min(8, "ADMIN_BEARER_TOKEN must be at least 8 characters"),
   binanceBaseUrl: z.string().url().default(DEFAULT_BINANCE_BASE_URL),
   httpTimeoutMs: z.coerce.number().int().positive().default(DEFAULT_HTTP_TIMEOUT_MS),
   maxRetries: z.coerce.number().int().min(1).default(DEFAULT_MAX_RETRIES),
   retryBackoffBaseMs: z.coerce.number().int().min(50).default(DEFAULT_RETRY_BACKOFF_BASE_MS),
+  jwtSecret: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
+  ethNetworkId: z.string().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -41,11 +43,12 @@ export const loadEnv = (bindings: CloudflareBindings): AppEnv => {
   const parsed = envSchema.parse({
     webhookDefaultUrl: bindings.WEBHOOK_DEFAULT_URL ?? DEFAULT_WEBHOOK_URL,
     webhookHmacSecret: bindings.WEBHOOK_HMAC_SECRET,
-    adminBearerToken: bindings.ADMIN_BEARER_TOKEN,
     binanceBaseUrl: bindings.BINANCE_BASE_URL ?? DEFAULT_BINANCE_BASE_URL,
     httpTimeoutMs: bindings.HTTP_TIMEOUT_MS,
     maxRetries: bindings.MAX_RETRIES,
     retryBackoffBaseMs: bindings.RETRY_BACKOFF_BASE_MS,
+    jwtSecret: bindings.JWT_SECRET,
+    ethNetworkId: bindings.ETH_NETWORK_ID,
   });
 
   cache.set(bindings, parsed);

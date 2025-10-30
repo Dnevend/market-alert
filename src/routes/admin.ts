@@ -11,13 +11,10 @@ import {
   updateSymbol,
   type SymbolRecord,
 } from "../db/repo";
-import { requireBearerAuth } from "../middleware/auth";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import type { AppContext } from "../types";
 
 const admin = new Hono<AppContext>();
-
-admin.use("*", requireBearerAuth);
 
 const listSymbolsSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),

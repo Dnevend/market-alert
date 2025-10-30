@@ -15,7 +15,7 @@ health.get("/healthz", async (c) => {
       checks: {
         database: dbHealthy,
         webhookSecret: Boolean(env.webhookHmacSecret),
-        adminToken: Boolean(env.adminBearerToken),
+        jwtSecret: Boolean(env.jwtSecret),
       },
     },
   });

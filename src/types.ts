@@ -4,5 +4,6 @@ export type AppContext = {
   Bindings: CloudflareBindings;
   Variables: {
     env: AppEnv;
+    userAddress?: string;
   };
 };

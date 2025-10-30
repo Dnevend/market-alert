@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import admin from "./routes/admin";
+import auth from "./routes/auth";
+import users from "./routes/users";
 import health from "./routes/health";
 import trigger from "./routes/trigger";
 import { AppError } from "./lib/errors";
@@ -28,19 +30,37 @@ app.use("*", async (c, next) => {
   });
 });
 
-app.route("/", health);
-app.route("/", trigger);
-app.route("/", admin);
-
+// 公开路由（不需要鉴权）
 app.get("/", (c) =>
   c.json({
     success: true,
     data: {
       service: "market-alert",
-      routes: ["/healthz", "/trigger", "/admin"],
+      version: "1.0.0",
+      routes: [
+        "/healthz",
+        "/trigger",
+        "/auth",
+        "/users",
+        "/admin"
+      ],
     },
   })
 );
+
+app.route("/", health);
+app.route("/", auth);
+
+// 需要鉴权的路由
+app.use("*", async (c, next) => {
+  // 应用以太坊JWT鉴权中间件
+  const { requireEthereumAuth } = await import("./middleware/auth");
+  return requireEthereumAuth(c, next);
+});
+
+app.route("/", trigger);
+app.route("/", users);
+app.route("/", admin);
 
 app.notFound((c) =>
   c.json(

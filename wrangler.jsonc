@@ -5,7 +5,11 @@
   "compatibility_date": "2025-10-21",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "BINANCE_BASE_URL": "https://api.binance.com"
+    "BINANCE_BASE_URL": "https://api.binance.com",
+    "WEBHOOK_DEFAULT_URL": "https://fwalert.com/xxx",
+    "WEBHOOK_HMAC_SECRET": "dev-secret-key-change-in-production",
+    "ADMIN_BEARER_TOKEN": "dev-admin-token-change-in-production",
+    "JWT_SECRET": "dev-jwt-secret-key-change-in-production-32-chars-minimum"
   },
   "d1_databases": [
     {
