@@ -37,6 +37,7 @@ export const fetchRecentKlines = async (
   options: BinanceClientOptions
 ): Promise<BinanceKline[]> => {
   const url = buildKlinesUrl(options.baseUrl, symbol, interval);
+  console.log("🚀 ~ fetchRecentKlines ~ url:", url)
 
   let attempt = 0;
   let lastError: unknown;
@@ -53,7 +54,7 @@ export const fetchRecentKlines = async (
           "content-type": "application/json",
         },
       });
-      console.log("🚀 ~ fetchRecentKlines ~ response:", JSON.stringify(response.body));
+      console.log("🚀 ~ fetchRecentKlines ~ response:", JSON.stringify(response));
 
       if (!response.ok) {
         lastError = new Error(
