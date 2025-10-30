@@ -53,7 +53,7 @@ export const fetchRecentKlines = async (
           "content-type": "application/json",
         },
       });
-      console.log("🚀 ~ fetchRecentKlines ~ response:", response);
+      console.log("🚀 ~ fetchRecentKlines ~ response:", JSON.stringify(response.body));
 
       if (!response.ok) {
         lastError = new Error(
