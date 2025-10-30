@@ -15,14 +15,17 @@ import type { AppContext } from "./types";
 const app = new Hono<AppContext>();
 
 // CORS配置 - 允许所有跨域请求
-app.use("*", cors({
-  origin: "*", // 允许所有来源
-  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // 允许的HTTP方法
-  allowHeaders: ["Content-Type", "Authorization"], // 允许的请求头
-  exposeHeaders: ["Content-Length", "Content-Range"], // 暴露的响应头
-  maxAge: 86400, // 预检请求缓存时间（24小时）
-  credentials: true, // 允许携带凭据
-}));
+app.use(
+  "*",
+  cors({
+    origin: "*", // 允许所有来源
+    allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // 允许的HTTP方法
+    allowHeaders: ["Content-Type", "Authorization"], // 允许的请求头
+    exposeHeaders: ["Content-Length", "Content-Range"], // 暴露的响应头
+    maxAge: 86400, // 预检请求缓存时间（24小时）
+    credentials: true, // 允许携带凭据
+  })
+);
 
 app.use("*", async (c, next) => {
   const env = loadEnv(c.env);
@@ -49,20 +52,6 @@ app.get("/", (c) =>
     data: {
       service: "market-alert",
       version: "1.0.0",
-      routes: [
-        "/healthz",
-        "/trigger",
-        "/auth",
-        "/users",
-        "/admin",
-        "/doc",
-        "/swagger"
-      ],
-      documentation: {
-        custom_docs: "/docs",
-        openapi_json: "/doc",
-        swagger_ui: "/swagger"
-      }
     },
   })
 );
@@ -126,24 +115,25 @@ app.onError((err, c) => {
   );
 });
 
-export default app;
-export const fetch = app.fetch;
+export default {
+  ...app,
+  fetch: app.fetch,
+  scheduled: async (
+    controller: ScheduledController,
+    env: CloudflareBindings,
+    ctx: ExecutionContext
+  ) => {
+    logger.info("cron_started", { timestamp: Date.now() });
 
-export const scheduled: ExportedHandlerScheduledHandler = async (
-  controller,
-  env,
-  ctx
-) => {
-  logger.info("cron_started", { timestamp: Date.now() });
-  
-  ctx.waitUntil(
-    (async () => {
-      try {
-        const results = await runMonitor(env as CloudflareBindings);
-        logger.info("cron_completed", { results });
-      } catch (error) {
-        logger.error("cron_failed", { error: `${error}` });
-      }
-    })()
-  );
-};
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const results = await runMonitor(env as CloudflareBindings);
+          logger.info("cron_completed", { results });
+        } catch (error) {
+          logger.error("cron_failed", { error: `${error}` });
+        }
+      })()
+    );
+  },
+} as ExportedHandler<CloudflareBindings>;

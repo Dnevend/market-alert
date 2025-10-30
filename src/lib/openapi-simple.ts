@@ -72,6 +72,15 @@ const ErrorResponseSchema = z.object({
   }),
 });
 
+const ScheduledErrorResponseSchema = z.object({
+  success: z.literal(false),
+  error: z.object({
+    code: z.string(),
+    message: z.string(),
+    details: z.string().optional(),
+  }),
+});
+
 const AddressQuerySchema = z.object({
   address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid Ethereum address"),
 });
@@ -408,6 +417,14 @@ const scheduledRoute = createRoute({
         },
       },
       description: 'Unauthorized - authentication required',
+    },
+    500: {
+      content: {
+        'application/json': {
+          schema: ScheduledErrorResponseSchema,
+        },
+      },
+      description: 'Internal server error',
     },
   },
 });
