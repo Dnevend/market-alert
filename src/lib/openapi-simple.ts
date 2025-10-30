@@ -386,6 +386,60 @@ openapi.openapi(getProfileRoute, (c) => {
   }, 200 as const);
 });
 
+// Scheduled task trigger endpoint (for testing)
+const scheduledRoute = createRoute({
+  method: 'post',
+  path: '/admin/scheduled',
+  tags: ['Admin'],
+  security: [{ bearerAuth: [] }],
+  responses: {
+    200: {
+      content: {
+        'application/json': {
+          schema: TriggerResponseSchema,
+        },
+      },
+      description: 'Scheduled task triggered successfully',
+    },
+    401: {
+      content: {
+        'application/json': {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: 'Unauthorized - authentication required',
+    },
+  },
+});
+
+openapi.openapi(scheduledRoute, async (c) => {
+  try {
+    // Import the runMonitor function
+    const { runMonitor } = await import('../lib/monitor');
+    const results = await runMonitor(c.env as any);
+
+    return c.json({
+      success: true,
+      data: {
+        message: "Scheduled task triggered successfully",
+        results: {
+          symbolsProcessed: results.length,
+          alertsTriggered: results.filter(r => r.triggered).length,
+        },
+      },
+    }, 200 as const);
+  } catch (error) {
+    return c.json({
+      success: false,
+      error: {
+        code: "SCHEDULED_TASK_FAILED",
+        message: "Failed to execute scheduled task",
+        details: `${error}`,
+      },
+    }, 500 as const);
+  }
+});
+
 // Add Swagger UI endpoint
 openapi.get(
   '/swagger',
