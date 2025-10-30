@@ -5,6 +5,7 @@ import auth from "./routes/auth";
 import users from "./routes/users";
 import health from "./routes/health";
 import trigger from "./routes/trigger";
+import openapiRoutes from "./lib/openapi-simple";
 import { AppError } from "./lib/errors";
 import { logger } from "./lib/logger";
 import { runMonitor } from "./lib/monitor";
@@ -53,12 +54,23 @@ app.get("/", (c) =>
         "/trigger",
         "/auth",
         "/users",
-        "/admin"
+        "/admin",
+        "/doc",
+        "/swagger"
       ],
+      documentation: {
+        custom_docs: "/docs",
+        openapi_json: "/doc",
+        swagger_ui: "/swagger"
+      }
     },
   })
 );
 
+// Add OpenAPI documentation routes (public)
+app.route("/", openapiRoutes);
+
+// Add original routes
 app.route("/", health);
 app.route("/", auth);
 
