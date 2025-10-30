@@ -169,7 +169,7 @@ export class EthereumSigner {
   /**
    * 生成 JWT Token (简化实现)
    */
-  static generateJWT(address: string, secret: string): string {
+  static generateJWT(address: string, secret: string, role?: string): string {
     const header = {
       alg: 'HS256',
       typ: 'JWT'
@@ -177,6 +177,7 @@ export class EthereumSigner {
 
     const payload = {
       address: address.toLowerCase(),
+      role: role || 'user',
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + (24 * 60 * 60) // 24小时过期
     };
@@ -195,7 +196,7 @@ export class EthereumSigner {
   /**
    * 验证 JWT Token (简化实现)
    */
-  static verifyJWT(token: string, secret: string): string | null {
+  static verifyJWT(token: string, secret: string): { address: string; role: string } | null {
     try {
       const [headerEncoded, payloadEncoded, signature] = token.split('.');
 
@@ -219,7 +220,10 @@ export class EthereumSigner {
         return null;
       }
 
-      return payload.address;
+      return {
+        address: payload.address,
+        role: payload.role || 'user'
+      };
 
     } catch (error) {
       logger.error("jwt_verification_failed", { error: `${error}` });

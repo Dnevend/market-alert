@@ -5,5 +5,6 @@ export type AppContext = {
   Variables: {
     env: AppEnv;
     userAddress?: string;
+    userRole?: string;
   };
 };

@@ -43,12 +43,27 @@ CREATE INDEX IF NOT EXISTS idx_alerts_symbol_window ON alerts(symbol, window_end
 CREATE TABLE IF NOT EXISTS users (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   address TEXT NOT NULL UNIQUE,
+  role TEXT NOT NULL DEFAULT 'user', -- 角色: admin, user, guest
   nickname TEXT,
   avatar_url TEXT,
   preferences TEXT, -- JSON格式存储用户偏好设置
   created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
+
+-- 角色枚举约束
+CREATE TABLE IF NOT EXISTS user_roles (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE,
+  description TEXT,
+  created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+);
+
+-- 插入默认角色
+INSERT OR IGNORE INTO user_roles (name, description) VALUES
+  ('admin', '管理员用户，拥有系统全部权限'),
+  ('user', '普通用户，可以访问基础功能'),
+  ('guest', '访客用户，仅限公开访问');
 
 CREATE INDEX IF NOT EXISTS idx_users_address ON users(address);
 

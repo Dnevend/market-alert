@@ -3,6 +3,7 @@ import { logger } from "../lib/logger";
 export interface User {
   id: number;
   address: string;
+  role: string;
   nickname?: string;
   avatar_url?: string;
   preferences?: string;
@@ -12,12 +13,14 @@ export interface User {
 
 export interface CreateUserData {
   address: string;
+  role?: string;
   nickname?: string;
   avatar_url?: string;
   preferences?: string;
 }
 
 export interface UpdateUserData {
+  role?: string;
   nickname?: string;
   avatar_url?: string;
   preferences?: string;
@@ -60,10 +63,11 @@ export class UserDB {
   async create(userData: CreateUserData): Promise<User> {
     try {
       const stmt = this.db.prepare(`
-        INSERT INTO users (address, nickname, avatar_url, preferences)
-        VALUES (?, ?, ?, ?)
+        INSERT INTO users (address, role, nickname, avatar_url, preferences)
+        VALUES (?, ?, ?, ?, ?)
       `).bind(
         userData.address.toLowerCase(),
+        userData.role || 'user',
         userData.nickname || null,
         userData.avatar_url || null,
         userData.preferences || null
@@ -103,6 +107,10 @@ export class UserDB {
       const fields: string[] = [];
       const values: any[] = [];
 
+      if (userData.role !== undefined) {
+        fields.push("role = ?");
+        values.push(userData.role);
+      }
       if (userData.nickname !== undefined) {
         fields.push("nickname = ?");
         values.push(userData.nickname);
@@ -274,6 +282,84 @@ export class UserDB {
       return result.count || 0;
     } catch (error) {
       logger.error("user_count_failed", { error: `${error}` });
+      throw error;
+    }
+  }
+
+  /**
+   * 根据角色查找用户
+   */
+  async findByRole(role: string, limit: number = 50, offset: number = 0): Promise<User[]> {
+    try {
+      const stmt = this.db.prepare(`
+        SELECT * FROM users
+        WHERE role = ?
+        ORDER BY created_at DESC
+        LIMIT ? OFFSET ?
+      `).bind(role, limit, offset);
+
+      const results = await stmt.all() as { results: User[] };
+      return results.results || [];
+    } catch (error) {
+      logger.error("user_find_by_role_failed", { role, error: `${error}` });
+      throw error;
+    }
+  }
+
+  /**
+   * 更新用户角色
+   */
+  async updateRole(id: number, role: string): Promise<User | null> {
+    try {
+      return await this.update(id, { role });
+    } catch (error) {
+      logger.error("user_update_role_failed", { id, role, error: `${error}` });
+      throw error;
+    }
+  }
+
+  /**
+   * 根据地址更新用户角色
+   */
+  async updateRoleByAddress(address: string, role: string): Promise<User | null> {
+    try {
+      const user = await this.findByAddress(address);
+      if (!user) {
+        return null;
+      }
+      return await this.updateRole(user.id, role);
+    } catch (error) {
+      logger.error("user_update_role_by_address_failed", { address, role, error: `${error}` });
+      throw error;
+    }
+  }
+
+  /**
+   * 检查用户是否具有特定角色
+   */
+  async hasRole(address: string, requiredRole: string): Promise<boolean> {
+    try {
+      const user = await this.findByAddress(address);
+      if (!user) {
+        return false;
+      }
+      return user.role === requiredRole;
+    } catch (error) {
+      logger.error("user_has_role_check_failed", { address, requiredRole, error: `${error}` });
+      throw error;
+    }
+  }
+
+  /**
+   * 获取所有可用角色
+   */
+  async getAvailableRoles(): Promise<Array<{ name: string; description: string }>> {
+    try {
+      const stmt = this.db.prepare("SELECT name, description FROM user_roles ORDER BY name");
+      const results = await stmt.all() as { results: Array<{ name: string; description: string }> };
+      return results.results || [];
+    } catch (error) {
+      logger.error("user_get_roles_failed", { error: `${error}` });
       throw error;
     }
   }

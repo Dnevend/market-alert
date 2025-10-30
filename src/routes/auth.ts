@@ -4,6 +4,7 @@ import { EthereumSigner } from "../lib/ethereum";
 import { loadEnv } from "../config/env";
 import { badRequest, unauthorized } from "../lib/errors";
 import { logger } from "../lib/logger";
+import { UserDB } from "../db/users";
 import type { AppContext } from "../types";
 
 const auth = new Hono<AppContext>();
@@ -54,6 +55,7 @@ auth.post("/auth/verify", async (c) => {
 
   const { address, signature } = parse.data;
   const env = loadEnv(c.env);
+  const userDB = new UserDB(c.env.DB);
 
   try {
     // 生成原始消息
@@ -84,11 +86,15 @@ auth.post("/auth/verify", async (c) => {
       throw unauthorized("Signature has expired");
     }
 
-    // 生成 JWT token
-    const token = EthereumSigner.generateJWT(address, env.jwtSecret);
+    // 获取或创建用户信息
+    const user = await userDB.getOrCreate(address);
+
+    // 生成 JWT token（包含角色信息）
+    const token = EthereumSigner.generateJWT(address, env.jwtSecret, user.role);
 
     logger.info("user_authenticated", {
       address: result.address,
+      role: user.role,
       timestamp: Date.now()
     });
 
@@ -97,6 +103,7 @@ auth.post("/auth/verify", async (c) => {
       data: {
         token,
         address: result.address,
+        role: user.role,
         expiresIn: 86400, // 24小时
       },
     });
@@ -122,9 +129,9 @@ auth.post("/auth/validate", async (c) => {
   const env = loadEnv(c.env);
 
   try {
-    const address = EthereumSigner.verifyJWT(token, env.jwtSecret);
+    const userPayload = EthereumSigner.verifyJWT(token, env.jwtSecret);
 
-    if (!address) {
+    if (!userPayload) {
       logger.warn("jwt_validation_failed", { token: token.substring(0, 20) + "..." });
       throw unauthorized("Invalid or expired token");
     }
@@ -133,7 +140,8 @@ auth.post("/auth/validate", async (c) => {
       success: true,
       data: {
         valid: true,
-        address,
+        address: userPayload.address,
+        role: userPayload.role,
       },
     });
 
@@ -153,6 +161,7 @@ auth.get("/auth/status", async (c) => {
       data: {
         authenticated: false,
         address: null,
+        role: null,
       },
     });
   }
@@ -160,13 +169,14 @@ auth.get("/auth/status", async (c) => {
   const env = loadEnv(c.env);
 
   try {
-    const address = EthereumSigner.verifyJWT(token, env.jwtSecret);
+    const userPayload = EthereumSigner.verifyJWT(token, env.jwtSecret);
 
     return c.json({
       success: true,
       data: {
-        authenticated: !!address,
-        address,
+        authenticated: !!userPayload,
+        address: userPayload?.address || null,
+        role: userPayload?.role || null,
       },
     });
 
@@ -178,6 +188,7 @@ auth.get("/auth/status", async (c) => {
       data: {
         authenticated: false,
         address: null,
+        role: null,
       },
     });
   }
