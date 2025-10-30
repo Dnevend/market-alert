@@ -47,38 +47,41 @@ export const fetchRecentKlines = async (
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
     try {
-      // const response = await fetch(url.toString(), {
-      //   signal: controller.signal,
-      //   headers: {
-      //     "content-type": "application/json",
-      //   },
-      // });
+      const response = await fetch(url.toString(), {
+        signal: controller.signal,
+        headers: {
+          "content-type": "application/json",
+        },
+      });
+      console.log("🚀 ~ fetchRecentKlines ~ response:", response);
 
-      // if (!response.ok) {
-      //   lastError = new Error(`Binance API responded with status ${response.status}`);
-      //   logger.warn("binance_fetch_non_ok", {
-      //     symbol,
-      //     interval,
-      //     status: response.status,
-      //     attempt,
-      //   });
-      // } else {
-      //   const body = (await response.json()) as unknown;
-      //   if (!Array.isArray(body)) {
-      //     throw new Error("Unexpected Binance response shape");
-      //   }
-      //   const parsed = body.map((entry) => {
-      //     if (!Array.isArray(entry) || entry.length < 7) {
-      //       throw new Error("Malformed kline entry");
-      //     }
-      //     return {
-      //       openTime: Number(entry[0]),
-      //       closeTime: Number(entry[6]),
-      //       close: Number(entry[4]),
-      //     };
-      //   });
-      //   return parsed;
-      // }
+      if (!response.ok) {
+        lastError = new Error(
+          `Binance API responded with status ${response.status}`
+        );
+        logger.warn("binance_fetch_non_ok", {
+          symbol,
+          interval,
+          status: response.status,
+          attempt,
+        });
+      } else {
+        const body = (await response.json()) as unknown;
+        if (!Array.isArray(body)) {
+          throw new Error("Unexpected Binance response shape");
+        }
+        const parsed = body.map((entry) => {
+          if (!Array.isArray(entry) || entry.length < 7) {
+            throw new Error("Malformed kline entry");
+          }
+          return {
+            openTime: Number(entry[0]),
+            closeTime: Number(entry[6]),
+            close: Number(entry[4]),
+          };
+        });
+        return parsed;
+      }
       return [{ openTime: 0, closeTime: 0, close: 0 }];
     } catch (error) {
       lastError = error;
