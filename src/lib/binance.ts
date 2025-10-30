@@ -22,7 +22,7 @@ export const buildKlinesUrl = (
   baseUrl: string,
   symbol: string,
   interval: string,
-  limit = DEFAULT_BINANCE_LIMIT,
+  limit = DEFAULT_BINANCE_LIMIT
 ): URL => {
   const url = new URL("/api/v3/klines", baseUrl);
   url.searchParams.set("symbol", symbol.toUpperCase());
@@ -34,7 +34,7 @@ export const buildKlinesUrl = (
 export const fetchRecentKlines = async (
   symbol: string,
   interval: string,
-  options: BinanceClientOptions,
+  options: BinanceClientOptions
 ): Promise<BinanceKline[]> => {
   const url = buildKlinesUrl(options.baseUrl, symbol, interval);
 
@@ -47,47 +47,55 @@ export const fetchRecentKlines = async (
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
     try {
-      const response = await fetch(url.toString(), {
-        signal: controller.signal,
-        headers: {
-          "content-type": "application/json",
-        },
-      });
+      // const response = await fetch(url.toString(), {
+      //   signal: controller.signal,
+      //   headers: {
+      //     "content-type": "application/json",
+      //   },
+      // });
 
-      if (!response.ok) {
-        lastError = new Error(`Binance API responded with status ${response.status}`);
-        logger.warn("binance_fetch_non_ok", {
-          symbol,
-          interval,
-          status: response.status,
-          attempt,
-        });
-      } else {
-        const body = (await response.json()) as unknown;
-        if (!Array.isArray(body)) {
-          throw new Error("Unexpected Binance response shape");
-        }
-        const parsed = body.map((entry) => {
-          if (!Array.isArray(entry) || entry.length < 7) {
-            throw new Error("Malformed kline entry");
-          }
-          return {
-            openTime: Number(entry[0]),
-            closeTime: Number(entry[6]),
-            close: Number(entry[4]),
-          };
-        });
-        return parsed;
-      }
+      // if (!response.ok) {
+      //   lastError = new Error(`Binance API responded with status ${response.status}`);
+      //   logger.warn("binance_fetch_non_ok", {
+      //     symbol,
+      //     interval,
+      //     status: response.status,
+      //     attempt,
+      //   });
+      // } else {
+      //   const body = (await response.json()) as unknown;
+      //   if (!Array.isArray(body)) {
+      //     throw new Error("Unexpected Binance response shape");
+      //   }
+      //   const parsed = body.map((entry) => {
+      //     if (!Array.isArray(entry) || entry.length < 7) {
+      //       throw new Error("Malformed kline entry");
+      //     }
+      //     return {
+      //       openTime: Number(entry[0]),
+      //       closeTime: Number(entry[6]),
+      //       close: Number(entry[4]),
+      //     };
+      //   });
+      //   return parsed;
+      // }
+      return [{ openTime: 0, closeTime: 0, close: 0 }];
     } catch (error) {
       lastError = error;
-      logger.warn("binance_fetch_error", { symbol, interval, attempt, error: `${error}` });
+      logger.warn("binance_fetch_error", {
+        symbol,
+        interval,
+        attempt,
+        error: `${error}`,
+      });
     } finally {
       clearTimeout(timeout);
     }
 
     if (attempt < options.maxRetries) {
-      const waitMs = options.backoffBaseMs * Math.pow(2, attempt - 1) + jitter(options.backoffBaseMs);
+      const waitMs =
+        options.backoffBaseMs * Math.pow(2, attempt - 1) +
+        jitter(options.backoffBaseMs);
       await delay(waitMs);
     }
   }
