@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { cors } from "hono/cors";
 import admin from "./routes/admin";
 import auth from "./routes/auth";
 import users from "./routes/users";
@@ -11,6 +12,16 @@ import { loadEnv } from "./config/env";
 import type { AppContext } from "./types";
 
 const app = new Hono<AppContext>();
+
+// CORS配置 - 允许所有跨域请求
+app.use("*", cors({
+  origin: "*", // 允许所有来源
+  allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"], // 允许的HTTP方法
+  allowHeaders: ["Content-Type", "Authorization"], // 允许的请求头
+  exposeHeaders: ["Content-Length", "Content-Range"], // 暴露的响应头
+  maxAge: 86400, // 预检请求缓存时间（24小时）
+  credentials: true, // 允许携带凭据
+}));
 
 app.use("*", async (c, next) => {
   const env = loadEnv(c.env);

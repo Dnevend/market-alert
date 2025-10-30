@@ -67,7 +67,7 @@ export class UserDB {
         VALUES (?, ?, ?, ?, ?)
       `).bind(
         userData.address.toLowerCase(),
-        userData.role || 'user',
+        userData.role || 'guest',
         userData.nickname || null,
         userData.avatar_url || null,
         userData.preferences || null
