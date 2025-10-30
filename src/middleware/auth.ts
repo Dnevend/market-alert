@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { Context } from "hono";
 import { unauthorized } from "../lib/errors";
 import { EthereumSigner } from "../lib/ethereum";
 import { loadEnv } from "../config/env";
@@ -6,7 +7,7 @@ import { logger } from "../lib/logger";
 import type { AppContext } from "../types";
 
 // 以太坊签名认证中间件
-export const requireEthereumAuth: MiddlewareHandler<AppContext> = async (c, next) => {
+export const requireEthereumAuth: MiddlewareHandler<AppContext> = async (c: Context<AppContext>, next) => {
   const token = c.req.header("Authorization")?.replace("Bearer ", "");
 
   if (!token) {
@@ -36,7 +37,7 @@ export const requireEthereumAuth: MiddlewareHandler<AppContext> = async (c, next
 
 // 角色验证中间件工厂函数
 export const requireRole = (requiredRole: string): MiddlewareHandler<AppContext> => {
-  return async (c, next) => {
+  return async (c: Context<AppContext>, next) => {
     const userRole = c.get("userRole");
     const userAddress = c.get("userAddress");
 
@@ -62,7 +63,7 @@ export const requireRole = (requiredRole: string): MiddlewareHandler<AppContext>
 export const requireAdmin = requireRole("admin");
 
 // 用户权限验证中间件（admin 或 user）
-export const requireUser = async (c: AppContext, next: () => Promise<void>) => {
+export const requireUser = async (c: Context<AppContext>, next: () => Promise<void>) => {
   const userRole = c.get("userRole");
   const userAddress = c.get("userAddress");
 
@@ -85,7 +86,7 @@ export const requireUser = async (c: AppContext, next: () => Promise<void>) => {
 
 // 多角色验证中间件工厂函数
 export const requireAnyRole = (roles: string[]): MiddlewareHandler<AppContext> => {
-  return async (c, next) => {
+  return async (c: Context<AppContext>, next) => {
     const userRole = c.get("userRole");
     const userAddress = c.get("userAddress");
 

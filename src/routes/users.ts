@@ -19,6 +19,10 @@ users.get("/users/profile", async (c) => {
   const userAddress = c.get("userAddress");
   const userDB = new UserDB(c.env.DB);
 
+  if (!userAddress) {
+    throw badRequest("User address not found in context");
+  }
+
   try {
     const user = await userDB.findByAddress(userAddress);
 
@@ -48,6 +52,10 @@ users.get("/users/profile", async (c) => {
 users.put("/users/profile", async (c) => {
   const userAddress = c.get("userAddress");
   const userDB = new UserDB(c.env.DB);
+
+  if (!userAddress) {
+    throw badRequest("User address not found in context");
+  }
 
   let body: unknown;
   try {

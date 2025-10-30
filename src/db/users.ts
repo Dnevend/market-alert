@@ -143,7 +143,7 @@ export class UserDB {
         throw new Error("Failed to update user");
       }
 
-      if (result.changes === 0) {
+      if ((result as any).changes === 0) {
         return null;
       }
 
@@ -184,7 +184,7 @@ export class UserDB {
       const stmt = this.db.prepare("DELETE FROM users WHERE id = ?").bind(id);
       const result = await stmt.run();
 
-      if (result.success && result.changes > 0) {
+      if (result.success && (result as any).changes > 0) {
         logger.info("user_deleted", { userId: id });
         return true;
       }
