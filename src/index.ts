@@ -91,6 +91,8 @@ export const scheduled: ExportedHandlerScheduledHandler = async (
   env,
   ctx
 ) => {
+  logger.info("cron_started", { timestamp: Date.now() });
+  
   ctx.waitUntil(
     (async () => {
       try {

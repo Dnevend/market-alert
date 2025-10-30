@@ -214,4 +214,36 @@ admin.get("/admin/alerts", async (c) => {
   });
 });
 
+// Development-only endpoint to trigger scheduled tasks
+admin.post("/admin/scheduled", async (c) => {
+  console.log("🚀 Manual scheduled task triggered via admin endpoint");
+
+  try {
+    const { runMonitor } = await import("../lib/monitor");
+    const results = await runMonitor(c.env);
+
+    console.log("🚀 Manual scheduled task completed:", results);
+
+    return c.json({
+      success: true,
+      data: {
+        message: "Scheduled task executed successfully",
+        results,
+        timestamp: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    console.log("🚀 Manual scheduled task failed:", error);
+
+    return c.json({
+      success: false,
+      error: {
+        code: "SCHEDULED_TASK_FAILED",
+        message: "Failed to execute scheduled task",
+        details: `${error}`,
+      },
+    }, 500);
+  }
+});
+
 export default admin;

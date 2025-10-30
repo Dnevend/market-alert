@@ -1,21 +1,32 @@
 {
-	"$schema": "node_modules/wrangler/config-schema.json",
-	"name": "market-alert",
-	"main": "src/index.ts",
-	"compatibility_date": "2025-10-21",
-	"compatibility_flags": ["nodejs_compat"],
-	"vars": {
-		"BINANCE_BASE_URL": "https://api.binance.com"
-	},
-	"d1_databases": [
-		{
-			"binding": "DB",
-			"database_name": "market-alert",
-			// Replace with your real database id
-			"database_id": "2661e137-fcba-4c15-af70-7b869485a126"
-		}
-	],
-	"triggers": {
-		"crons": ["*/1 * * * *"]
-	}
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "market-alert",
+  "main": "src/index.ts",
+  "compatibility_date": "2025-10-21",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "BINANCE_BASE_URL": "https://api.binance.com"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "market-alert",
+      // Replace with your real database id
+      "database_id": "2661e137-fcba-4c15-af70-7b869485a126"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/1 * * * *"]
+  },
+
+  "observability": {
+    "enabled": false,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true,
+      "invocation_logs": true
+    }
+  }
 }
