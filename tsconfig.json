@@ -1,14 +1,15 @@
 {
   "compilerOptions": {
+    "types": ["vitest", "node"],
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "strict": true,
     "skipLibCheck": true,
-    "lib": [
-      "ESNext"
-    ],
+    "lib": ["ESNext"],
     "jsx": "react-jsx",
-    "jsxImportSource": "hono/jsx"
+    "jsxImportSource": "hono/jsx",
+    "allowSyntheticDefaultImports": true
   },
+  "include": ["src", "src/__tests__", "worker-configuration.d.ts"]
 }

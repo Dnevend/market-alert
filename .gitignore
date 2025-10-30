@@ -1,5 +1,8 @@
 # prod
 dist/
+build/
+*.worker.js
+*.worker.mjs
 
 # dev
 .yarn/
@@ -10,14 +13,19 @@ dist/
 .idea/workspace.xml
 .idea/usage.statistics.xml
 .idea/shelf
+*.swp
+*.swo
+*~
 
 # deps
 node_modules/
 .wrangler
+.mf/
 
 # env
 .env
-.env.production
+.env.*
+!.env.example
 .dev.vars
 
 # logs
@@ -29,5 +37,36 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# test
+coverage/
+.nyc_output/
+*.lcov
+
+# typescript
+*.tsbuildinfo
+.tsc/
+
+# database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+.d1/
+
 # misc
 .DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+*.bak
+*.tmp
+*.temp
+
+# cache
+.cache/
+.parcel-cache/
+.eslintcache
+.stylelintcache

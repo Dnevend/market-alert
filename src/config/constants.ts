@@ -1,0 +1,12 @@
+export const DEFAULT_THRESHOLD_PERCENT = 0.02;
+export const DEFAULT_WINDOW_MINUTES = 5;
+export const DEFAULT_COOLDOWN_MINUTES = 10;
+export const DEFAULT_WEBHOOK_URL = "https://fwalert.com/xxx";
+export const DEFAULT_HTTP_TIMEOUT_MS = 10000;
+export const DEFAULT_MAX_RETRIES = 3;
+export const DEFAULT_RETRY_BACKOFF_BASE_MS = 500;
+export const DEFAULT_BINANCE_BASE_URL = "https://api.binance.com";
+export const DEFAULT_WINDOW_INTERVAL = "5m";
+export const DEFAULT_CRON_SCHEDULE = "*/1 * * * *";
+export const DEFAULT_BINANCE_LIMIT = 2;
+export const ALERT_SOURCE = "binance";
