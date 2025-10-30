@@ -147,7 +147,7 @@ List endpoints support pagination using these parameters:
   },
   servers: [
     {
-      url: 'https://market-alert-api.nevend.workers.dev',
+      url: 'https://market-alert.dnevend.workers.dev',
       description: 'Production server',
     },
     {
@@ -196,8 +196,19 @@ const healthRoute = createRoute({
   },
 });
 
-// Note: /healthz endpoint is handled by the real implementation in src/routes/health.ts
-// This is documented here for OpenAPI specification only
+openapi.openapi(healthRoute, (c) => {
+  return c.json({
+    success: true,
+    data: {
+      healthy: true,
+      checks: {
+        database: true,
+        webhookSecret: true,
+        jwtSecret: true,
+      },
+    },
+  });
+});
 
 // Get sign message endpoint
 const getMessageRoute = createRoute({
@@ -227,8 +238,17 @@ const getMessageRoute = createRoute({
   },
 });
 
-// Note: /auth/message endpoint is handled by the real implementation in src/routes/auth.ts
-// This is documented here for OpenAPI specification only
+openapi.openapi(getMessageRoute, (c) => {
+  const { address } = c.req.valid('query');
+
+  return c.json({
+    success: true,
+    data: {
+      message: `Welcome to Market Alert! Please sign this message to authenticate.\n\nNonce: ${Date.now()}\nAddress: ${address}`,
+      timestamp: Date.now(),
+    },
+  }, 200 as const);
+});
 
 // Verify signature endpoint
 const verifyRoute = createRoute({
@@ -272,8 +292,19 @@ const verifyRoute = createRoute({
   },
 });
 
-// Note: /auth/verify endpoint is handled by the real implementation in src/routes/auth.ts
-// This is documented here for OpenAPI specification only
+openapi.openapi(verifyRoute, (c) => {
+  const { address } = c.req.valid('json');
+
+  return c.json({
+    success: true,
+    data: {
+      token: "sample_jwt_token_placeholder",
+      address: address,
+      role: "user",
+      expiresIn: 86400,
+    },
+  }, 200 as const);
+});
 
 // Trigger endpoint
 const triggerRoute = createRoute({
@@ -309,8 +340,18 @@ const triggerRoute = createRoute({
   },
 });
 
-// Note: /trigger endpoint is handled by the real implementation in src/routes/trigger.ts
-// This is documented here for OpenAPI specification only
+openapi.openapi(triggerRoute, (c) => {
+  return c.json({
+    success: true,
+    data: {
+      message: "Market monitoring triggered successfully",
+      results: {
+        symbolsProcessed: 2,
+        alertsTriggered: 1,
+      },
+    },
+  }, 200 as const);
+});
 
 // Get user profile endpoint
 const getProfileRoute = createRoute({
@@ -338,8 +379,21 @@ const getProfileRoute = createRoute({
   },
 });
 
-// Note: /users/profile endpoint is handled by the real implementation in src/routes/users.ts
-// This is documented here for OpenAPI specification only
+openapi.openapi(getProfileRoute, (c) => {
+  return c.json({
+    success: true,
+    data: {
+      id: 1,
+      address: "0x742d35Cc6634C0532925a3b8D4C9db96C4b4Db45",
+      nickname: "John Doe",
+      avatar_url: "https://example.com/avatar.jpg",
+      role: "user",
+      preferences: "{\"theme\":\"dark\",\"notifications\":true}",
+      created_at: "2024-01-01T00:00:00.000Z",
+      updated_at: "2024-01-01T00:00:00.000Z",
+    },
+  }, 200 as const);
+});
 
 // Scheduled task trigger endpoint (for testing)
 const scheduledRoute = createRoute({
@@ -407,7 +461,7 @@ openapi.openapi(scheduledRoute, async (c) => {
 openapi.get(
   '/swagger',
   swaggerUI({
-    url: '/doc',
+    url: '/docs/doc',
     title: 'Market Alert API Documentation',
   })
 );

@@ -56,8 +56,8 @@ app.get("/", (c) =>
   })
 );
 
-// Add OpenAPI documentation routes (public)
-app.route("/", openapiRoutes);
+// Add OpenAPI documentation routes (public) with /docs prefix
+app.route("/docs", openapiRoutes);
 
 // Add original routes
 app.route("/", health);
