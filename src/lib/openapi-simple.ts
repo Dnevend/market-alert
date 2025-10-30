@@ -7,14 +7,64 @@ import type { AppContext } from '../types';
 // Create OpenAPI app
 const openapi = new OpenAPIHono<AppContext>();
 
-// Define common schemas
-const SuccessResponseSchema = z.object({
-  success: z.boolean(),
-  data: z.any(),
+// Define specific response schemas for each endpoint
+const AuthMessageResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    message: z.string(),
+    timestamp: z.number(),
+  }),
+});
+
+const AuthVerifyResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    token: z.string(),
+    address: z.string(),
+    role: z.string(),
+    expiresIn: z.number(),
+  }),
+});
+
+const HealthResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    healthy: z.boolean(),
+    checks: z.object({
+      database: z.boolean(),
+      webhookSecret: z.boolean(),
+      jwtSecret: z.boolean(),
+    }),
+  }),
+});
+
+const TriggerResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    message: z.string(),
+    results: z.object({
+      symbolsProcessed: z.number(),
+      alertsTriggered: z.number(),
+    }),
+  }),
+});
+
+const UserProfileResponseSchema = z.object({
+  success: z.literal(true),
+  data: z.object({
+    id: z.number(),
+    address: z.string(),
+    nickname: z.string(),
+    avatar_url: z.string(),
+    role: z.string(),
+    preferences: z.string(),
+    created_at: z.string(),
+    updated_at: z.string(),
+  }),
 });
 
 const ErrorResponseSchema = z.object({
-  success: z.boolean(),
+  success: z.literal(false),
   error: z.object({
     code: z.string(),
     message: z.string(),
@@ -96,22 +146,6 @@ List endpoints support pagination using these parameters:
       description: 'Development server',
     },
   ],
-  components: {
-    schemas: {},
-    parameters: {},
-    securitySchemes: {
-      bearerAuth: {
-        type: 'http',
-        scheme: 'bearer',
-        bearerFormat: 'JWT',
-      },
-    },
-  },
-  security: [
-    {
-      bearerAuth: [],
-    },
-  ],
   tags: [
     {
       name: 'Authentication',
@@ -145,7 +179,7 @@ const healthRoute = createRoute({
     200: {
       content: {
         'application/json': {
-          schema: SuccessResponseSchema,
+          schema: HealthResponseSchema,
         },
       },
       description: 'Health check successful',
@@ -179,7 +213,7 @@ const getMessageRoute = createRoute({
     200: {
       content: {
         'application/json': {
-          schema: SuccessResponseSchema,
+          schema: AuthMessageResponseSchema,
         },
       },
       description: 'Sign message generated successfully',
@@ -204,7 +238,7 @@ openapi.openapi(getMessageRoute, (c) => {
       message: `Welcome to Market Alert! Please sign this message to authenticate.\n\nNonce: ${Date.now()}\nAddress: ${address}`,
       timestamp: Date.now(),
     },
-  });
+  }, 200 as const);
 });
 
 // Verify signature endpoint
@@ -225,7 +259,7 @@ const verifyRoute = createRoute({
     200: {
       content: {
         'application/json': {
-          schema: SuccessResponseSchema,
+          schema: AuthVerifyResponseSchema,
         },
       },
       description: 'Authentication successful',
@@ -260,7 +294,7 @@ openapi.openapi(verifyRoute, (c) => {
       role: "user",
       expiresIn: 86400,
     },
-  });
+  }, 200 as const);
 });
 
 // Trigger endpoint
@@ -281,7 +315,7 @@ const triggerRoute = createRoute({
     200: {
       content: {
         'application/json': {
-          schema: SuccessResponseSchema,
+          schema: TriggerResponseSchema,
         },
       },
       description: 'Market monitoring triggered successfully',
@@ -307,7 +341,7 @@ openapi.openapi(triggerRoute, (c) => {
         alertsTriggered: 1,
       },
     },
-  });
+  }, 200 as const);
 });
 
 // Get user profile endpoint
@@ -320,7 +354,7 @@ const getProfileRoute = createRoute({
     200: {
       content: {
         'application/json': {
-          schema: SuccessResponseSchema,
+          schema: UserProfileResponseSchema,
         },
       },
       description: 'User profile retrieved successfully',
@@ -349,7 +383,7 @@ openapi.openapi(getProfileRoute, (c) => {
       created_at: "2024-01-01T00:00:00.000Z",
       updated_at: "2024-01-01T00:00:00.000Z",
     },
-  });
+  }, 200 as const);
 });
 
 // Add Swagger UI endpoint
