@@ -8,18 +8,20 @@ import {
 import type { CloudflareBindings } from "../config/env";
 import { loadEnv } from "../config/env";
 import {
-  buildKlinesUrl,
-  fetchRecentKlines,
-  type BinanceClientOptions,
-} from "./binance";
+  fetchEnhancedKlines,
+  type EnhancedClientOptions,
+  type EnhancedKline,
+} from "./ccxt-adapter";
 import {
   calculatePercentChange,
   generateIdempotencyKey,
   getDirection,
   isWithinCooldown,
   shouldTriggerAlert,
-  toPriceWindow,
-} from "./compute";
+  createEnhancedPriceWindow,
+  shouldTriggerAlertWithIndicators,
+  type EnhancedPriceWindow,
+} from "./compute-enhanced";
 import { logger } from "./logger";
 import {
   findAlertByIdempotency,
@@ -35,6 +37,13 @@ import { sendWebhook } from "./webhook";
 
 export type MonitorOptions = {
   symbols?: string[];
+  useTechnicalIndicators?: boolean;
+  indicatorFilters?: {
+    minVolumeChange?: number;
+    rsiRange?: [number, number];
+    useBollingerBands?: boolean;
+    rsiThreshold?: number;
+  };
 };
 
 export type MonitorResult = {
@@ -112,13 +121,19 @@ export const runMonitor = async (
   const interval = mapWindowToInterval(windowMinutes);
   const thresholdDefault = settings?.default_threshold_percent ?? DEFAULT_THRESHOLD_PERCENT;
   const cooldownDefault = settings?.default_cooldown_minutes ?? DEFAULT_COOLDOWN_MINUTES;
-  const binanceBaseUrl =
-    bindings.BINANCE_BASE_URL ?? settings?.binance_base_url ?? env.binanceBaseUrl;
+
+  // 默认启用技术指标，但可以通过选项禁用
+  const useTechnicalIndicators = options.useTechnicalIndicators !== false;
+  const indicatorFilters = {
+    minVolumeChange: 0.2,
+    rsiRange: [20, 80] as [number, number],
+    useBollingerBands: true,
+    ...options.indicatorFilters,
+  };
 
   const { symbols, skipped } = await resolveSymbols(bindings, options.symbols);
 
-  const clientOptions: BinanceClientOptions = {
-    baseUrl: binanceBaseUrl,
+  const clientOptions: EnhancedClientOptions = {
     timeoutMs: env.httpTimeoutMs,
     maxRetries: env.maxRetries,
     backoffBaseMs: env.retryBackoffBaseMs,
@@ -132,37 +147,64 @@ export const runMonitor = async (
     const cooldownMinutes = symbol.cooldown_minutes ?? cooldownDefault;
     const webhookUrl = symbol.webhook_url ?? env.webhookDefaultUrl;
 
-    const klinesUrl = buildKlinesUrl(clientOptions.baseUrl, symbolValue, interval);
-
     try {
-      const candles = await fetchRecentKlines(symbolValue, interval, clientOptions);
-      const window = toPriceWindow(
-        candles.map((candle) => ({
-          openTime: candle.openTime,
-          closeTime: candle.closeTime,
-          close: candle.close,
-        })),
-      );
+      // 根据是否使用技术指标决定获取多少K线数据
+      const klineCount = useTechnicalIndicators ? 25 : 2; // 技术指标需要更多历史数据
+      const klines = await fetchEnhancedKlines(symbolValue, interval, clientOptions, klineCount);
 
-      if (!window) {
-        results.push({
-          symbol: symbolValue,
-          status: "SKIPPED",
-          triggered: false,
-          reason: "insufficient_data",
-        });
-        continue;
+      let shouldTrigger: boolean;
+      let enhancedWindow: EnhancedPriceWindow | null = null;
+      let changePercent: number;
+
+      if (useTechnicalIndicators) {
+        enhancedWindow = createEnhancedPriceWindow(klines);
+
+        if (!enhancedWindow) {
+          results.push({
+            symbol: symbolValue,
+            status: "SKIPPED",
+            triggered: false,
+            reason: "insufficient_data",
+          });
+          continue;
+        }
+
+        changePercent = enhancedWindow.priceChangePercent;
+        shouldTrigger = shouldTriggerAlertWithIndicators(enhancedWindow, thresholdPercent, indicatorFilters);
+      } else {
+        // 简单模式：只使用基础价格变化计算
+        const { enhancedKlinesToPriceWindow } = await import("./compute-enhanced");
+        const simpleWindow = enhancedKlinesToPriceWindow(klines);
+
+        if (!simpleWindow) {
+          results.push({
+            symbol: symbolValue,
+            status: "SKIPPED",
+            triggered: false,
+            reason: "insufficient_data",
+          });
+          continue;
+        }
+
+        changePercent = simpleWindow.priceChangePercent;
+        shouldTrigger = shouldTriggerAlert(changePercent, thresholdPercent);
+
+        // 为兼容性创建简化的 enhancedWindow
+        enhancedWindow = {
+          ...simpleWindow,
+          indicators: undefined,
+        };
       }
 
-      const changePercent = calculatePercentChange(window.previousClose, window.currentClose);
-      if (!shouldTriggerAlert(changePercent, thresholdPercent)) {
+      if (!shouldTrigger) {
+        const reason = useTechnicalIndicators ? "below_threshold_or_filters" : "below_threshold";
         results.push({
           symbol: symbolValue,
           status: "SKIPPED",
           triggered: false,
           changePercent,
-          windowEnd: window.windowEnd,
-          reason: "below_threshold",
+          windowEnd: enhancedWindow!.windowEnd,
+          reason,
         });
         continue;
       }
@@ -171,7 +213,7 @@ export const runMonitor = async (
 
       const idempotencyKey = await generateIdempotencyKey(
         symbolValue,
-        window.windowEnd,
+        enhancedWindow.windowEnd,
         thresholdPercent,
       );
 
@@ -191,14 +233,14 @@ export const runMonitor = async (
       const latestAlert = await getLatestAlertForSymbol(bindings.DB, symbolValue);
       if (
         latestAlert &&
-        isWithinCooldown(latestAlert.window_end, window.windowEnd, cooldownMinutes)
+        isWithinCooldown(latestAlert.window_end, enhancedWindow.windowEnd, cooldownMinutes)
       ) {
         await recordAlert(bindings.DB, {
           symbol: symbolValue,
           changePercent,
           direction,
-          windowStart: window.windowStart,
-          windowEnd: window.windowEnd,
+          windowStart: enhancedWindow.windowStart,
+          windowEnd: enhancedWindow.windowEnd,
           idempotencyKey,
           status: "SKIPPED",
           responseCode: null,
@@ -209,25 +251,71 @@ export const runMonitor = async (
           status: "SKIPPED",
           triggered: false,
           changePercent,
-          windowEnd: window.windowEnd,
+          windowEnd: enhancedWindow.windowEnd,
           reason: "cooldown_active",
         });
         continue;
       }
 
-      const payload = {
+      // 根据是否使用技术指标生成不同格式的 payload
+      const basePayload = {
         symbol: symbolValue,
         change_percent: changePercent,
         direction,
         window_minutes: windowMinutes,
-        window_start: window.windowStart,
-        window_end: window.windowEnd,
+        window_start: enhancedWindow!.windowStart,
+        window_end: enhancedWindow!.windowEnd,
         observed_at: Date.now(),
         source: ALERT_SOURCE,
         links: {
-          kline_api: klinesUrl.toString(),
+          binance: `https://www.binance.com/en/trade/${symbolValue}`,
+          tradingview: `https://www.tradingview.com/chart/?symbol=BINANCE:${symbolValue}`,
         },
       };
+
+      const payload = useTechnicalIndicators ? {
+        ...basePayload,
+        price_data: {
+          open: enhancedWindow!.open,
+          high: enhancedWindow!.high,
+          low: enhancedWindow!.low,
+          close: enhancedWindow!.currentClose,
+          volume: enhancedWindow!.volume,
+          price_change: enhancedWindow!.priceChange,
+        },
+        technical_indicators: enhancedWindow!.indicators,
+        filters: indicatorFilters,
+      } : {
+        ...basePayload,
+        price_data: {
+          open: enhancedWindow!.open,
+          high: enhancedWindow!.high,
+          low: enhancedWindow!.low,
+          close: enhancedWindow!.currentClose,
+          volume: enhancedWindow!.volume,
+          price_change: enhancedWindow!.priceChange,
+        },
+      };
+
+      // 根据模式记录不同级别的日志
+      if (useTechnicalIndicators) {
+        logger.info("monitor_alert_triggering_with_indicators", {
+          symbol: symbolValue,
+          changePercent: `${(changePercent * 100).toFixed(2)}%`,
+          direction,
+          rsi: enhancedWindow!.indicators?.rsi,
+          bollingerBands: enhancedWindow!.indicators?.bollingerBands,
+          volumeChange: enhancedWindow!.indicators?.volumeChange,
+          sma: enhancedWindow!.indicators?.sma,
+          ema: enhancedWindow!.indicators?.ema,
+        });
+      } else {
+        logger.info("monitor_alert_triggering_simple", {
+          symbol: symbolValue,
+          changePercent: `${(changePercent * 100).toFixed(2)}%`,
+          direction,
+        });
+      }
 
       const webhookResult = await sendWebhook(webhookUrl, payload, env.webhookHmacSecret, {
         timeoutMs: env.httpTimeoutMs,
@@ -241,8 +329,8 @@ export const runMonitor = async (
         symbol: symbolValue,
         changePercent,
         direction,
-        windowStart: window.windowStart,
-        windowEnd: window.windowEnd,
+        windowStart: enhancedWindow.windowStart,
+        windowEnd: enhancedWindow.windowEnd,
         idempotencyKey,
         status,
         responseCode: webhookResult.status ?? null,
@@ -254,7 +342,7 @@ export const runMonitor = async (
         status,
         triggered: webhookResult.success,
         changePercent,
-        windowEnd: window.windowEnd,
+        windowEnd: enhancedWindow.windowEnd,
         reason: webhookResult.success ? undefined : "webhook_failed",
       });
     } catch (error) {
@@ -266,7 +354,7 @@ export const runMonitor = async (
         symbol: symbolValue,
         status: "FAILED",
         triggered: false,
-        reason: "binance_error",
+        reason: "enhanced_fetch_error",
       });
     }
   }
