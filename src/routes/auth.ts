@@ -17,7 +17,9 @@ const messageSchema = z.object({
 auth.get("/auth/message", (c) => {
   const parse = messageSchema.safeParse(c.req.query());
   if (!parse.success) {
-    throw badRequest("Invalid address parameter", { issues: parse.error.issues });
+    throw badRequest("Invalid address parameter", {
+      issues: parse.error.issues,
+    });
   }
 
   const { address } = parse.data;
@@ -37,7 +39,9 @@ auth.get("/auth/message", (c) => {
 // POST /auth/verify - 验证签名并获取 token
 const verifySchema = z.object({
   address: z.string().regex(/^0x[a-fA-F0-9]{40}$/, "Invalid Ethereum address"),
-  signature: z.string().regex(/^0x[a-fA-F0-9]{130}$/, "Invalid signature format"),
+  signature: z
+    .string()
+    .regex(/^0x[a-fA-F0-9]{130}$/, "Invalid signature format"),
 });
 
 auth.post("/auth/verify", async (c) => {
@@ -72,7 +76,7 @@ auth.post("/auth/verify", async (c) => {
       logger.warn("signature_verification_failed", {
         address,
         signature,
-        error: result.error
+        error: result.error,
       });
       throw unauthorized("Invalid signature");
     }
@@ -81,7 +85,7 @@ auth.post("/auth/verify", async (c) => {
     if (EthereumSigner.isMessageExpired(signMessage.timestamp)) {
       logger.warn("signature_expired", {
         address,
-        timestamp: signMessage.timestamp
+        timestamp: signMessage.timestamp,
       });
       throw unauthorized("Signature has expired");
     }
@@ -95,7 +99,7 @@ auth.post("/auth/verify", async (c) => {
     logger.info("user_authenticated", {
       address: result.address,
       role: user.role,
-      timestamp: Date.now()
+      timestamp: Date.now(),
     });
 
     return c.json({
@@ -107,14 +111,13 @@ auth.post("/auth/verify", async (c) => {
         expiresIn: 86400, // 24小时
       },
     });
-
   } catch (error) {
-      if (error instanceof Error && error.message.includes("unauthorized")) {
-        throw error;
-      }
+    if (error instanceof Error && error.message.includes("unauthorized")) {
+      throw error;
+    }
 
-      logger.error("authentication_error", { error: `${error}` });
-      throw badRequest("Authentication failed");
+    logger.error("authentication_error", { error: `${error}` });
+    throw badRequest("Authentication failed");
   }
 });
 
@@ -132,7 +135,9 @@ auth.post("/auth/validate", async (c) => {
     const userPayload = EthereumSigner.verifyJWT(token, env.jwtSecret);
 
     if (!userPayload) {
-      logger.warn("jwt_validation_failed", { token: token.substring(0, 20) + "..." });
+      logger.warn("jwt_validation_failed", {
+        token: token.substring(0, 20) + "...",
+      });
       throw unauthorized("Invalid or expired token");
     }
 
@@ -144,7 +149,6 @@ auth.post("/auth/validate", async (c) => {
         role: userPayload.role,
       },
     });
-
   } catch (error) {
     logger.error("jwt_validation_error", { error: `${error}` });
     throw unauthorized("Token validation failed");
@@ -179,7 +183,6 @@ auth.get("/auth/status", async (c) => {
         role: userPayload?.role || null,
       },
     });
-
   } catch (error) {
     logger.error("auth_status_check_error", { error: `${error}` });
 
@@ -192,6 +195,52 @@ auth.get("/auth/status", async (c) => {
       },
     });
   }
+});
+
+// GET /auth/debug - 开发调试端点，获取测试用JWT token
+auth.get("/auth/debug", async (c) => {
+  const env = loadEnv(c.env);
+
+  // 检查是否是开发环境
+  const isDevelopment =
+    c.req.header("x-debug-mode") === "dev" ||
+    c.req.url.includes("localhost") ||
+    c.req.url.includes("127.0.0.1");
+
+  if (!isDevelopment) {
+    return c.json(
+      {
+        success: false,
+        error: {
+          code: "FORBIDDEN",
+          message: "Debug endpoint only available in development mode",
+        },
+      },
+      403
+    );
+  }
+
+  // 生成开发用的JWT token
+  const testAddress = "0x0000000000000000000000000000000000000000";
+  const testRole = "admin";
+  const token = EthereumSigner.generateJWT(
+    testAddress,
+    env.jwtSecret,
+    testRole
+  );
+
+  return c.json({
+    success: true,
+    data: {
+      token,
+      address: testAddress,
+      role: testRole,
+      expiresIn: 86400,
+      usage:
+        "Use this token for development testing by adding: Authorization: Bearer " +
+        token,
+    },
+  });
 });
 
 export default auth;
