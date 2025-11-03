@@ -150,7 +150,7 @@ export const runMonitor = async (
     try {
       // 根据是否使用技术指标决定获取多少K线数据
       const klineCount = useTechnicalIndicators ? 25 : 2; // 技术指标需要更多历史数据
-      const klines = await fetchEnhancedKlines(symbolValue, interval, clientOptions, klineCount);
+      const klines = await fetchEnhancedKlines(symbolValue, interval, clientOptions, klineCount, env.binanceBaseUrl, env.useMockData);
 
       let shouldTrigger: boolean;
       let enhancedWindow: EnhancedPriceWindow | null = null;

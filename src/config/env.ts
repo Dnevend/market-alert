@@ -17,6 +17,7 @@ export interface CloudflareBindings {
   RETRY_BACKOFF_BASE_MS?: string;
   JWT_SECRET?: string;
   ETH_NETWORK_ID?: string;
+  USE_MOCK_DATA?: string;
 }
 
 const envSchema = z.object({
@@ -28,6 +29,7 @@ const envSchema = z.object({
   retryBackoffBaseMs: z.coerce.number().int().min(50).default(DEFAULT_RETRY_BACKOFF_BASE_MS),
   jwtSecret: z.string().min(32, "JWT_SECRET must be at least 32 characters"),
   ethNetworkId: z.string().optional(),
+  useMockData: z.boolean().optional(),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;
@@ -49,6 +51,7 @@ export const loadEnv = (bindings: CloudflareBindings): AppEnv => {
     retryBackoffBaseMs: bindings.RETRY_BACKOFF_BASE_MS,
     jwtSecret: bindings.JWT_SECRET,
     ethNetworkId: bindings.ETH_NETWORK_ID,
+    useMockData: bindings.USE_MOCK_DATA === 'true',
   });
 
   cache.set(bindings, parsed);

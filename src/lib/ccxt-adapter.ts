@@ -62,10 +62,49 @@ export const fetchEnhancedKlines = async (
   symbol: string,
   interval: string,
   options: EnhancedClientOptions,
-  limit = 2
+  limit = 2,
+  baseUrl?: string,
+  useMockData?: boolean
 ): Promise<EnhancedKline[]> => {
-  const baseUrl = "https://api.binance.com";
-  const url = buildEnhancedKlinesUrl(baseUrl, symbol, interval, limit);
+  // 使用传入的 baseUrl 或默认 URL
+  const defaultBaseUrl = baseUrl || "https://api.binance.com";
+
+  // CORS 代理备用方案
+  const proxyUrls = [
+    "https://corsproxy.io/?",
+    "https://api.allorigins.win/raw?url="
+  ];
+
+  let useProxy = false;
+  // 开发环境检查：如果设置了 useMockData 或者 URL 包含 mock，使用模拟数据
+  if (useMockData || defaultBaseUrl.includes('mock')) {
+    logger.info("enhanced_fetch_mock", { symbol, interval, limit });
+
+    // 生成模拟数据
+    const now = Date.now();
+    const mockKlines: EnhancedKline[] = [];
+
+    for (let i = limit - 1; i >= 0; i--) {
+      const timestamp = now - (i * 5 * 60 * 1000);
+      const basePrice = symbol.includes('BTC') ? 108000 : symbol.includes('ETH') ? 3800 : 100;
+      const randomChange = (Math.random() - 0.5) * 0.002;
+      const price = basePrice * (1 + randomChange);
+
+      mockKlines.push({
+        openTime: timestamp - 300000,
+        closeTime: timestamp,
+        open: Number((price * (1 + Math.random() * 0.001)).toFixed(2)),
+        high: Number((price * (1 + Math.random() * 0.002)).toFixed(2)),
+        low: Number((price * (1 - Math.random() * 0.002)).toFixed(2)),
+        close: Number(price.toFixed(2)),
+        volume: Number((Math.random() * 1000).toFixed(2)),
+      });
+    }
+
+    return mockKlines;
+  }
+
+  const url = buildEnhancedKlinesUrl(defaultBaseUrl, symbol, interval, limit);
 
   let attempt = 0;
   let lastError: unknown;
@@ -76,18 +115,26 @@ export const fetchEnhancedKlines = async (
     const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
 
     try {
+      // 如果是第一次尝试失败，尝试使用代理
+      let requestUrl = url.toString();
+      if (attempt > 1 && !useProxy) {
+        useProxy = true;
+        requestUrl = `https://corsproxy.io/?${encodeURIComponent(url.toString())}`;
+      }
+
       logger.info("enhanced_fetch_attempt", {
         symbol,
         interval,
         limit,
         attempt,
-        url: url.toString(),
+        url: requestUrl,
+        useProxy,
       });
 
-      const response = await fetch(url.toString(), {
+      const response = await fetch(requestUrl, {
         signal: controller.signal,
         headers: {
-          "content-type": "application/json",
+          "User-Agent": "Mozilla/5.0 (compatible; market-alert/1.0)",
         },
       });
 

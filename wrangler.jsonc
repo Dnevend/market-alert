@@ -33,5 +33,7 @@
       "persist": true,
       "invocation_logs": true
     }
-  }
+  },
+  "workers_dev": true,
+  "minify": true
 }
