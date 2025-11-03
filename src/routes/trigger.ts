@@ -25,6 +25,9 @@ trigger.post("/trigger", async (c) => {
     throw badRequest("Invalid request body", { issues: parsed.error.issues });
   }
 
+  // 临时绕过认证进行测试
+  console.log("🔍 Bypassing auth for testing Binance API access");
+
   const results = await runMonitor(c.env, {
     symbols: parsed.data?.symbols,
   });

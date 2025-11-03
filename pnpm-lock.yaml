@@ -14,6 +14,9 @@ importers:
       '@hono/zod-openapi':
         specifier: ^1.1.4
         version: 1.1.4(hono@4.10.1)(zod@4.1.12)
+      fake-useragent:
+        specifier: ^1.0.1
+        version: 1.0.1
       hono:
         specifier: ^4.10.1
         version: 4.10.1
@@ -797,6 +800,9 @@ packages:
 
   exsolve@1.0.7:
     resolution: {integrity: sha512-VO5fQUzZtI6C+vx4w/4BWJpg3s/5l+6pRQEHzFRM8WFi4XffSP1Z+4qi7GbjWbvRQEbdIco5mIMq+zX4rPuLrw==}
+
+  fake-useragent@1.0.1:
+    resolution: {integrity: sha512-BOQh1TM//DhrVaeZ+b3w3s4E40rfYcDTn5aoSM2w1xVsZVGglNOzPR5H8KDO8NmF8sT4ppxyb4/MHGIHfZsVDA==}
 
   fsevents@2.3.3:
     resolution: {integrity: sha512-5xoDfX+fL7faATnagmWPpbFtwh/R77WmMMqqHGS65C3vvB0YHrgF+B1YmZ3441tMj5n63k0212XNoJwzlhffQw==}
@@ -1585,6 +1591,8 @@ snapshots:
   expect-type@1.2.2: {}
 
   exsolve@1.0.7: {}
+
+  fake-useragent@1.0.1: {}
 
   fsevents@2.3.3:
     optional: true
