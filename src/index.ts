@@ -92,6 +92,10 @@ app.route("/", trigger);
 app.route("/", users);
 app.route("/", admin);
 
+// Add multi-indicator routes
+import multiIndicators from "./routes/multi-indicators";
+app.route("/", multiIndicators);
+
 app.notFound((c) =>
   c.json(
     {

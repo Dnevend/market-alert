@@ -30,19 +30,30 @@ import {
   getSettings,
   getSymbol,
   recordAlert,
+  getSymbolIndicators,
+  getLatestAlertNewForSymbol,
+  findAlertNewByIdempotency,
+  createAlertNew,
   type AlertStatus,
   type SymbolRecord,
 } from "../db/repo";
 import { sendWebhook } from "./webhook";
+import { MultiIndicatorMonitor } from "./multi-indicator-monitor";
+import type { MarketAnalysis, AlertTrigger } from "../types";
 
 export type MonitorOptions = {
   symbols?: string[];
   useTechnicalIndicators?: boolean;
+  useMultiIndicators?: boolean; // 新增：是否使用多指标系统
   indicatorFilters?: {
     minVolumeChange?: number;
     rsiRange?: [number, number];
     useBollingerBands?: boolean;
     rsiThreshold?: number;
+    // 新增：交易量相关过滤条件
+    volumeSurgeThreshold?: number;
+    volumeSpikeThreshold?: number;
+    abnormalVolumeZThreshold?: number;
   };
 };
 
@@ -360,4 +371,342 @@ export const runMonitor = async (
   }
 
   return results;
+};
+
+// ========== 多指标监控系统 ==========
+
+export type MultiIndicatorResult = {
+  symbol: string;
+  indicatorType: string;
+  indicatorDisplayName: string;
+  status: AlertStatus;
+  triggered: boolean;
+  indicatorValue: number;
+  thresholdValue: number;
+  direction?: string;
+  windowEnd?: number;
+  reason?: string;
+  alertId?: number;
+};
+
+/**
+ * 多指标监控主函数
+ */
+export const runMultiIndicatorMonitor = async (
+  bindings: CloudflareBindings,
+  options: MonitorOptions = {}
+): Promise<MultiIndicatorResult[]> => {
+  const env = loadEnv(bindings);
+  const settings = await getSettings(bindings.DB);
+  const windowMinutes = settings?.window_minutes ?? DEFAULT_WINDOW_MINUTES;
+
+  // 默认启用多指标系统
+  const useMultiIndicators = options.useMultiIndicators !== false;
+
+  if (!useMultiIndicators) {
+    logger.info("multi_indicator_monitor_disabled", { reason: "explicitly_disabled" });
+    return [];
+  }
+
+  logger.info("multi_indicator_monitor_started", {
+    windowMinutes,
+    symbols: options.symbols,
+  });
+
+  const { symbols, skipped } = await resolveSymbolsForMultiIndicators(bindings, options.symbols);
+
+  const clientOptions: EnhancedClientOptions = {
+    timeoutMs: env.httpTimeoutMs,
+    maxRetries: env.maxRetries,
+    backoffBaseMs: env.retryBackoffBaseMs,
+  };
+
+  const results: MultiIndicatorResult[] = [...skipped.map(s => ({
+    ...s,
+    indicatorType: "N/A",
+    indicatorDisplayName: "N/A",
+  }))];
+
+  // 创建多指标监控器
+  const monitor = new MultiIndicatorMonitor(bindings.DB, env);
+
+  for (const symbol of symbols) {
+    logger.info("multi_indicator_monitor_symbol_start", { symbol: symbol.symbol });
+
+    try {
+      // 获取更多K线数据用于交易量分析
+      const klineCount = Math.max(25, Math.ceil(windowMinutes / 5) * 12); // 获取足够的历史数据
+      const klines = await fetchEnhancedKlines(symbol.symbol, mapWindowToInterval(windowMinutes), clientOptions, klineCount, env.krakenBaseUrl, env.useMockData);
+
+      if (!klines || klines.length < 2) {
+        results.push({
+          symbol: symbol.symbol,
+          indicatorType: "N/A",
+          indicatorDisplayName: "N/A",
+          status: "SKIPPED",
+          triggered: false,
+          indicatorValue: 0,
+          thresholdValue: 0,
+          reason: "insufficient_data",
+        });
+        continue;
+      }
+
+      // 转换为标准格式
+      const standardKlines = klines.map(kline => ({
+        timestamp: kline.openTime,
+        open: kline.open,
+        high: kline.high,
+        low: kline.low,
+        close: kline.close,
+        volume: kline.volume,
+      }));
+
+      // 执行市场分析
+      const analysis = await monitor.analyzeMarket(symbol.symbol, standardKlines, windowMinutes);
+
+      // 检查预警触发条件
+      const triggers = await monitor.checkAlertTriggers(symbol.symbol, analysis);
+
+      if (triggers.length === 0) {
+        results.push({
+          symbol: symbol.symbol,
+          indicatorType: "ALL",
+          indicatorDisplayName: "所有指标",
+          status: "SKIPPED",
+          triggered: false,
+          indicatorValue: 0,
+          thresholdValue: 0,
+          direction: "NONE",
+          windowEnd: analysis.windowEnd,
+          reason: "no_triggers",
+        });
+        continue;
+      }
+
+      // 处理每个触发的预警
+      for (const trigger of triggers) {
+        const webhookUrl = symbol.webhook_url ?? env.webhookDefaultUrl;
+        const cooldownMinutes = trigger.indicatorType.cooldown_minutes ?? symbol.cooldown_minutes ?? DEFAULT_COOLDOWN_MINUTES;
+
+        // 检查冷却期
+        const inCooldown = await monitor.checkCooldown(
+          trigger.symbol,
+          trigger.indicatorType.name,
+          analysis.windowEnd,
+          cooldownMinutes
+        );
+
+        if (inCooldown) {
+          // 记录冷却期跳过的告警
+          await monitor.createAlertRecord(trigger, analysis, windowMinutes, 'SKIPPED');
+
+          results.push({
+            symbol: trigger.symbol,
+            indicatorType: trigger.indicatorType.name,
+            indicatorDisplayName: trigger.indicatorType.display_name,
+            status: "SKIPPED",
+            triggered: false,
+            indicatorValue: trigger.indicatorValue,
+            thresholdValue: trigger.thresholdValue,
+            direction: "COOLDOWN",
+            windowEnd: analysis.windowEnd,
+            reason: "cooldown_active",
+          });
+          continue;
+        }
+
+        // 检查幂等性
+        const idempotencyKey = monitor.generateIdempotencyKey(
+          trigger.symbol,
+          trigger.indicatorType.name,
+          analysis.windowEnd,
+          trigger.thresholdValue,
+          trigger.operator
+        );
+
+        const existingAlert = await findAlertNewByIdempotency(bindings.DB, idempotencyKey);
+        if (existingAlert) {
+          results.push({
+            symbol: trigger.symbol,
+            indicatorType: trigger.indicatorType.name,
+            indicatorDisplayName: trigger.indicatorType.display_name,
+            status: existingAlert.status,
+            triggered: existingAlert.status === "SENT",
+            indicatorValue: trigger.indicatorValue,
+            thresholdValue: trigger.thresholdValue,
+            windowEnd: analysis.windowEnd,
+            alertId: existingAlert.id,
+            reason: "duplicate",
+          });
+          continue;
+        }
+
+        // 生成告警负载
+        const payload = monitor.generateAlertPayload(trigger, analysis, windowMinutes);
+
+        // 发送webhook
+        const webhookResult = await sendWebhook(webhookUrl, payload, env.webhookHmacSecret, {
+          timeoutMs: env.httpTimeoutMs,
+          maxRetries: env.maxRetries,
+          backoffBaseMs: env.retryBackoffBaseMs,
+        });
+
+        const status: AlertStatus = webhookResult.success ? "SENT" : "FAILED";
+
+        // 创建告警记录
+        const alertRecord = await monitor.createAlertRecord(
+          trigger,
+          analysis,
+          windowMinutes,
+          status,
+          webhookResult.status ?? null,
+          webhookResult.body ?? webhookResult.error ?? null
+        );
+
+        logger.info("multi_indicator_alert_processed", {
+          symbol: trigger.symbol,
+          indicatorType: trigger.indicatorType.name,
+          indicatorValue: trigger.indicatorValue,
+          thresholdValue: trigger.thresholdValue,
+          status,
+          webhookStatus: webhookResult.status,
+        });
+
+        results.push({
+          symbol: trigger.symbol,
+          indicatorType: trigger.indicatorType.name,
+          indicatorDisplayName: trigger.indicatorType.display_name,
+          status,
+          triggered: webhookResult.success,
+          indicatorValue: trigger.indicatorValue,
+          thresholdValue: trigger.thresholdValue,
+          direction: monitor.getAlertDirection(trigger, analysis),
+          windowEnd: analysis.windowEnd,
+          alertId: alertRecord.id,
+          reason: webhookResult.success ? undefined : "webhook_failed",
+        });
+      }
+
+    } catch (error) {
+      logger.error("multi_indicator_monitor_symbol_failed", {
+        symbol: symbol.symbol,
+        error: `${error}`,
+      });
+
+      results.push({
+        symbol: symbol.symbol,
+        indicatorType: "N/A",
+        indicatorDisplayName: "N/A",
+        status: "FAILED",
+        triggered: false,
+        indicatorValue: 0,
+        thresholdValue: 0,
+        reason: "monitor_error",
+      });
+    }
+  }
+
+  logger.info("multi_indicator_monitor_completed", {
+    totalSymbols: symbols.length,
+    totalResults: results.length,
+    triggeredCount: results.filter(r => r.triggered).length,
+  });
+
+  return results;
+};
+
+/**
+ * 为多指标系统解析符号配置
+ */
+const resolveSymbolsForMultiIndicators = async (
+  bindings: CloudflareBindings,
+  requested?: string[]
+): Promise<{ symbols: SymbolRecord[]; skipped: MultiIndicatorResult[] }> => {
+  if (!requested || requested.length === 0) {
+    // 获取有配置多指标的符号
+    const { getSymbolIndicators } = await import('../db/repo');
+    const indicatorConfigs = await getSymbolIndicators(bindings.DB);
+
+    // 获取唯一符号
+    const symbolNames = Array.from(new Set(indicatorConfigs.map(c => c.symbol)));
+
+    const { getSymbol } = await import('../db/repo');
+    const symbols: SymbolRecord[] = [];
+    const skipped: MultiIndicatorResult[] = [];
+
+    for (const symbolName of symbolNames) {
+      const record = await getSymbol(bindings.DB, symbolName);
+      if (!record) {
+        skipped.push({
+          symbol: symbolName,
+          indicatorType: "N/A",
+          indicatorDisplayName: "N/A",
+          status: "SKIPPED",
+          triggered: false,
+          indicatorValue: 0,
+          thresholdValue: 0,
+          reason: "symbol_not_found",
+        });
+        continue;
+      }
+      if (record.enabled !== 1) {
+        skipped.push({
+          symbol: symbolName,
+          indicatorType: "N/A",
+          indicatorDisplayName: "N/A",
+          status: "SKIPPED",
+          triggered: false,
+          indicatorValue: 0,
+          thresholdValue: 0,
+          reason: "symbol_disabled",
+        });
+        continue;
+      }
+      symbols.push(record);
+    }
+
+    return { symbols, skipped };
+  }
+
+  const unique = Array.from(new Set(requested.map(normalizeSymbol)));
+  const found: SymbolRecord[] = [];
+  const skipped: MultiIndicatorResult[] = [];
+
+  for (const symbol of unique) {
+    const { getSymbol } = await import('../db/repo');
+    const record = await getSymbol(bindings.DB, symbol);
+
+    if (!record) {
+      skipped.push({
+        symbol,
+        indicatorType: "N/A",
+        indicatorDisplayName: "N/A",
+        status: "SKIPPED",
+        triggered: false,
+        indicatorValue: 0,
+        thresholdValue: 0,
+        reason: "symbol_not_found",
+      });
+      continue;
+    }
+
+    if (record.enabled !== 1) {
+      skipped.push({
+        symbol,
+        indicatorType: "N/A",
+        indicatorDisplayName: "N/A",
+        status: "SKIPPED",
+        triggered: false,
+        indicatorValue: 0,
+        thresholdValue: 0,
+        reason: "symbol_disabled",
+      });
+      continue;
+    }
+
+    found.push(record);
+  }
+
+  return { symbols: found, skipped };
 };

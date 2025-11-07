@@ -1,4 +1,5 @@
 import type { AlertDirection } from "../lib/compute";
+import type { IndicatorType, SymbolIndicator, AlertRecord as NewAlertRecord } from "../types";
 
 export type SymbolRecord = {
   id: number;
@@ -17,10 +18,16 @@ export type SettingsRecord = {
   window_minutes: number;
   default_cooldown_minutes: number;
   binance_base_url: string;
+  default_volume_threshold_percent?: number;
+  default_volume_surge_threshold?: number;
+  enable_volume_alerts?: number;
+  enable_abnormal_volume_alerts?: number;
+  volume_analysis_window_minutes?: number;
 };
 
 export type AlertStatus = "SENT" | "SKIPPED" | "FAILED";
 
+// 保持向后兼容的旧版AlertRecord
 export type AlertRecord = {
   id: number;
   symbol: string;
@@ -33,6 +40,22 @@ export type AlertRecord = {
   response_code: number | null;
   response_body: string | null;
   created_at: string;
+};
+
+// 新版的多指标告警记录
+export { NewAlertRecord as AlertRecordNew };
+
+export type IndicatorTypeRecord = IndicatorType & {
+  id: number;
+  is_active: 1 | 0;
+  created_at: string;
+};
+
+export type SymbolIndicatorRecord = SymbolIndicator & {
+  id: number;
+  enabled: 1 | 0;
+  created_at: string;
+  updated_at: string;
 };
 
 export type SymbolInput = {
@@ -300,6 +323,315 @@ export const listAlerts = async (
     )
     .bind(...params, limit)
     .all<AlertRecord>();
+
+  return results ?? [];
+};
+
+// ========== 多指标系统相关函数 ==========
+
+// 指标类型相关操作
+export const getIndicatorTypes = async (db: D1Database): Promise<IndicatorTypeRecord[]> => {
+  const { results } = await db
+    .prepare("SELECT * FROM indicator_types WHERE is_active = 1 ORDER BY id")
+    .all<IndicatorTypeRecord>();
+  return results ?? [];
+};
+
+export const getIndicatorTypeByName = async (db: D1Database, name: string): Promise<IndicatorTypeRecord | null> => {
+  return db
+    .prepare("SELECT * FROM indicator_types WHERE name = ? AND is_active = 1")
+    .bind(name)
+    .first<IndicatorTypeRecord>();
+};
+
+// 符号指标配置相关操作
+export const getSymbolIndicators = async (
+  db: D1Database,
+  symbol?: string,
+  indicatorType?: string
+): Promise<SymbolIndicatorRecord[]> => {
+  let query = `
+    SELECT si.*, it.name as indicator_name, it.display_name, it.unit
+    FROM symbol_indicators si
+    JOIN indicator_types it ON si.indicator_type_id = it.id
+    WHERE si.enabled = 1 AND it.is_active = 1
+  `;
+  const params: unknown[] = [];
+
+  if (symbol) {
+    query += " AND si.symbol = ?";
+    params.push(symbol.toUpperCase());
+  }
+
+  if (indicatorType) {
+    query += " AND it.name = ?";
+    params.push(indicatorType);
+  }
+
+  query += " ORDER BY si.symbol, si.indicator_type_id";
+
+  const { results } = await db.prepare(query).bind(...params).all<SymbolIndicatorRecord>();
+  return results ?? [];
+};
+
+export const getSymbolIndicator = async (
+  db: D1Database,
+  symbol: string,
+  indicatorType: string
+): Promise<SymbolIndicatorRecord | null> => {
+  const query = `
+    SELECT si.*, it.name as indicator_name, it.display_name, it.unit
+    FROM symbol_indicators si
+    JOIN indicator_types it ON si.indicator_type_id = it.id
+    WHERE si.symbol = ? AND it.name = ? AND si.enabled = 1 AND it.is_active = 1
+  `;
+  return db.prepare(query).bind(symbol.toUpperCase(), indicatorType).first<SymbolIndicatorRecord>();
+};
+
+export const createSymbolIndicator = async (
+  db: D1Database,
+  input: {
+    symbol: string;
+    indicatorTypeId: number;
+    thresholdValue: number;
+    thresholdOperator: string;
+    enabled?: boolean;
+    cooldownMinutes?: number;
+    webhookUrl?: string;
+  }
+): Promise<SymbolIndicatorRecord> => {
+  const enabled = toFlag(input.enabled ?? 1) ?? 1;
+  const now = new Date().toISOString();
+
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO symbol_indicators
+       (symbol, indicator_type_id, threshold_value, threshold_operator, enabled, cooldown_minutes, webhook_url, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      input.symbol.toUpperCase(),
+      input.indicatorTypeId,
+      input.thresholdValue,
+      input.thresholdOperator,
+      enabled,
+      input.cooldownMinutes ?? null,
+      input.webhookUrl ?? null,
+      now,
+      now
+    )
+    .run();
+
+  const record = await getSymbolIndicator(db, input.symbol,
+    (await getIndicatorTypes(db)).find(it => it.id === input.indicatorTypeId)?.name || ''
+  );
+
+  if (!record) {
+    throw new Error("Failed to create symbol indicator");
+  }
+  return record;
+};
+
+export const updateSymbolIndicator = async (
+  db: D1Database,
+  symbol: string,
+  indicatorType: string,
+  updates: {
+    thresholdValue?: number;
+    thresholdOperator?: string;
+    enabled?: boolean;
+    cooldownMinutes?: number;
+    webhookUrl?: string;
+  }
+): Promise<SymbolIndicatorRecord | null> => {
+  const setFields: string[] = [];
+  const params: unknown[] = [];
+
+  if (typeof updates.thresholdValue !== 'undefined') {
+    setFields.push("threshold_value = ?");
+    params.push(updates.thresholdValue);
+  }
+
+  if (typeof updates.thresholdOperator !== 'undefined') {
+    setFields.push("threshold_operator = ?");
+    params.push(updates.thresholdOperator);
+  }
+
+  if (typeof updates.enabled !== 'undefined') {
+    setFields.push("enabled = ?");
+    params.push(toFlag(updates.enabled));
+  }
+
+  if (typeof updates.cooldownMinutes !== 'undefined') {
+    setFields.push("cooldown_minutes = ?");
+    params.push(updates.cooldownMinutes);
+  }
+
+  if (typeof updates.webhookUrl !== 'undefined') {
+    setFields.push("webhook_url = ?");
+    params.push(updates.webhookUrl);
+  }
+
+  if (setFields.length === 0) {
+    return getSymbolIndicator(db, symbol, indicatorType);
+  }
+
+  setFields.push("updated_at = ?");
+  params.push(new Date().toISOString());
+  params.push(symbol.toUpperCase());
+
+  const indicatorTypeRecord = await getIndicatorTypeByName(db, indicatorType);
+  if (!indicatorTypeRecord) {
+    throw new Error("Indicator type not found");
+  }
+
+  params.push(indicatorTypeRecord.id);
+
+  await db
+    .prepare(`UPDATE symbol_indicators SET ${setFields.join(", ")} WHERE symbol = ? AND indicator_type_id = ?`)
+    .bind(...params)
+    .run();
+
+  return getSymbolIndicator(db, symbol, indicatorType);
+};
+
+// 新版告警记录相关操作
+export const createAlertNew = async (
+  db: D1Database,
+  alert: {
+    symbol: string;
+    indicatorTypeId: number;
+    indicatorValue: number;
+    thresholdValue: number;
+    changePercent?: number;
+    direction?: string;
+    windowStart: number;
+    windowEnd: number;
+    windowMinutes: number;
+    idempotencyKey: string;
+    status: AlertStatus;
+    responseCode?: number | null;
+    responseBody?: string | null;
+    metadata?: string;
+  }
+): Promise<AlertRecordNew> => {
+  await db
+    .prepare(
+      `INSERT INTO alerts_new
+       (symbol, indicator_type_id, indicator_value, threshold_value, change_percent, direction,
+        window_start, window_end, window_minutes, idempotency_key, status, response_code, response_body, metadata, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      alert.symbol.toUpperCase(),
+      alert.indicatorTypeId,
+      alert.indicatorValue,
+      alert.thresholdValue,
+      alert.changePercent ?? null,
+      alert.direction ?? null,
+      alert.windowStart,
+      alert.windowEnd,
+      alert.windowMinutes,
+      alert.idempotencyKey,
+      alert.status,
+      alert.responseCode ?? null,
+      alert.responseBody ?? null,
+      alert.metadata ?? null,
+      new Date().toISOString()
+    )
+    .run();
+
+  const record = await db
+    .prepare("SELECT * FROM alerts_new WHERE idempotency_key = ?")
+    .bind(alert.idempotencyKey)
+    .first<AlertRecordNew>();
+
+  if (!record) {
+    throw new Error("Failed to create alert");
+  }
+  return record;
+};
+
+export const findAlertNewByIdempotency = async (
+  db: D1Database,
+  key: string
+): Promise<AlertRecordNew | null> => {
+  return db
+    .prepare("SELECT * FROM alerts_new WHERE idempotency_key = ?")
+    .bind(key)
+    .first<AlertRecordNew>();
+};
+
+export const getLatestAlertNewForSymbol = async (
+  db: D1Database,
+  symbol: string,
+  indicatorType?: string
+): Promise<AlertRecordNew | null> => {
+  let query = `
+    SELECT a.*, it.name as indicator_name
+    FROM alerts_new a
+    JOIN indicator_types it ON a.indicator_type_id = it.id
+    WHERE a.symbol = ?
+  `;
+  const params: unknown[] = [symbol.toUpperCase()];
+
+  if (indicatorType) {
+    query += " AND it.name = ?";
+    params.push(indicatorType);
+  }
+
+  query += " ORDER BY a.window_end DESC LIMIT 1";
+
+  return db.prepare(query).bind(...params).first<AlertRecordNew>();
+};
+
+export const listAlertsNew = async (
+  db: D1Database,
+  filters: {
+    symbol?: string;
+    indicatorType?: string;
+    since?: number;
+    status?: AlertStatus;
+    limit?: number;
+  } = {}
+): Promise<AlertRecordNew[]> => {
+  const where: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.symbol) {
+    where.push("a.symbol = ?");
+    params.push(filters.symbol.toUpperCase());
+  }
+
+  if (filters.indicatorType) {
+    where.push("it.name = ?");
+    params.push(filters.indicatorType);
+  }
+
+  if (typeof filters.since === "number") {
+    where.push("a.window_end >= ?");
+    params.push(filters.since);
+  }
+
+  if (filters.status) {
+    where.push("a.status = ?");
+    params.push(filters.status);
+  }
+
+  const whereClause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+  const limit = Math.min(Math.max(filters.limit ?? 50, 1), 200);
+
+  const { results } = await db
+    .prepare(
+      `SELECT a.*, it.name as indicator_name, it.display_name
+       FROM alerts_new a
+       JOIN indicator_types it ON a.indicator_type_id = it.id
+       ${whereClause}
+       ORDER BY a.window_end DESC
+       LIMIT ?`
+    )
+    .bind(...params, limit)
+    .all<AlertRecordNew>();
 
   return results ?? [];
 };
