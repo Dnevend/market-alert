@@ -6,7 +6,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "account_id": "fc5e788efd681b559866880a8cbe26fe",
   "vars": {
-    "BINANCE_BASE_URL": "https://api.binance.com",
+    "KRAKEN_BASE_URL": "https://api.kraken.com",
     "WEBHOOK_DEFAULT_URL": "https://fwalert.com/xxx",
     "WEBHOOK_HMAC_SECRET": "dev-secret-key-change-in-production",
     "ADMIN_BEARER_TOKEN": "dev-admin-token-change-in-production",

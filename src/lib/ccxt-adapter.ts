@@ -1,5 +1,6 @@
 import { logger } from './logger';
 import * as userAgent from 'fake-useragent';
+import { fetchKrakenOHLC, krakenToEnhancedKline, type KrakenClientOptions } from './kraken';
 
 export type EnhancedClientOptions = {
   timeoutMs: number;
@@ -95,7 +96,7 @@ export const convertToEnhancedKline = (entry: unknown[]): EnhancedKline => {
 };
 
 /**
- * 获取增强的 K 线数据（直接使用 Binance API，模仿 CCXT 接口）
+ * 获取增强的 K 线数据（使用 Kraken API，替换原来的 Binance API）
  */
 export const fetchEnhancedKlines = async (
   symbol: string,
@@ -105,8 +106,8 @@ export const fetchEnhancedKlines = async (
   baseUrl?: string,
   useMockData?: boolean
 ): Promise<EnhancedKline[]> => {
-  // 使用传入的 baseUrl 或默认 URL
-  const defaultBaseUrl = baseUrl || "https://api.binance.com";
+  // 使用传入的 baseUrl 或默认 Kraken URL
+  const defaultBaseUrl = baseUrl || "https://api.kraken.com";
 
   // CORS 代理备用方案
   const proxyUrls = [
@@ -117,7 +118,7 @@ export const fetchEnhancedKlines = async (
   let useProxy = false;
   // 开发环境检查：如果设置了 useMockData 或者 URL 包含 mock，使用模拟数据
   if (useMockData || defaultBaseUrl.includes('mock')) {
-    logger.info("enhanced_fetch_mock", { symbol, interval, limit });
+    logger.info("enhanced_fetch_mock", { symbol, interval, limit, exchange: "kraken" });
 
     // 生成模拟数据
     const now = Date.now();
@@ -143,157 +144,165 @@ export const fetchEnhancedKlines = async (
     return mockKlines;
   }
 
-  const url = buildEnhancedKlinesUrl(defaultBaseUrl, symbol, interval, limit);
+  try {
+    logger.info("kraken_fetch_start", { symbol, interval, limit, baseUrl: defaultBaseUrl });
 
-  let attempt = 0;
-  let lastError: unknown;
+    const krakenOptions: KrakenClientOptions = {
+      baseUrl: defaultBaseUrl,
+      timeoutMs: options.timeoutMs,
+      maxRetries: options.maxRetries,
+      backoffBaseMs: options.backoffBaseMs,
+    };
 
-  while (attempt < options.maxRetries) {
-    attempt += 1;
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs);
+    const krakenOHLC = await fetchKrakenOHLC(symbol, interval, krakenOptions, limit);
 
-    try {
-      // 如果是第一次尝试失败，尝试使用代理
-      let requestUrl = url.toString();
-      if (attempt > 1 && !useProxy) {
-        useProxy = true;
-        requestUrl = `https://corsproxy.io/?${encodeURIComponent(url.toString())}`;
-      }
+    const enhancedKlines = krakenOHLC.map((krakenData) => {
+      const enhancedKline = krakenToEnhancedKline(krakenData);
+      return {
+        openTime: enhancedKline.timestamp,
+        closeTime: enhancedKline.timestamp + (mapIntervalToMs(interval) - 1), // Approximate close time
+        open: enhancedKline.open,
+        high: enhancedKline.high,
+        low: enhancedKline.low,
+        close: enhancedKline.close,
+        volume: enhancedKline.volume,
+      };
+    });
 
-      logger.info("enhanced_fetch_attempt", {
-        symbol,
-        interval,
-        limit,
-        attempt,
-        url: requestUrl,
-        useProxy,
+    logger.info("kraken_fetch_success", {
+      symbol,
+      interval,
+      count: enhancedKlines.length,
+      firstTime: enhancedKlines[0]?.openTime,
+      lastTime: enhancedKlines[enhancedKlines.length - 1]?.closeTime,
+    });
+
+    return enhancedKlines;
+
+  } catch (error) {
+    logger.error("kraken_fetch_error", {
+      symbol,
+      interval,
+      error: `${error}`,
+    });
+
+    // 降级到模拟数据
+    logger.warn("fallback_to_mock_data", {
+      symbol,
+      interval,
+      reason: "kraken_api_error"
+    });
+
+    const now = Date.now();
+    const mockKlines: EnhancedKline[] = [];
+
+    for (let i = limit - 1; i >= 0; i--) {
+      const timestamp = now - (i * 5 * 60 * 1000);
+      const basePrice = symbol.includes('BTC') ? 108000 : symbol.includes('ETH') ? 3800 : 100;
+      const randomChange = (Math.random() - 0.5) * 0.002;
+      const price = basePrice * (1 + randomChange);
+
+      mockKlines.push({
+        openTime: timestamp - 300000,
+        closeTime: timestamp,
+        open: Number((price * (1 + Math.random() * 0.001)).toFixed(2)),
+        high: Number((price * (1 + Math.random() * 0.002)).toFixed(2)),
+        low: Number((price * (1 - Math.random() * 0.002)).toFixed(2)),
+        close: Number(price.toFixed(2)),
+        volume: Number((Math.random() * 1000).toFixed(2)),
       });
-
-      const response = await fetch(requestUrl, {
-        signal: controller.signal,
-        headers: generateRealisticHeaders(),
-      });
-
-      if (!response.ok) {
-        // Handle HTTP 451 (geographic restrictions) by falling back to mock data
-        if (response.status === 451) {
-          logger.warn("binance_geo_restricted", {
-            symbol,
-            interval,
-            status: response.status,
-            message: "Binance API unavailable due to geographic restrictions, using mock data"
-          });
-
-          // Generate mock data as fallback
-          const now = Date.now();
-          const mockKlines: EnhancedKline[] = [];
-
-          for (let i = limit - 1; i >= 0; i--) {
-            const timestamp = now - (i * 5 * 60 * 1000);
-            const basePrice = symbol.includes('BTC') ? 108000 : symbol.includes('ETH') ? 3800 : 100;
-            const randomChange = (Math.random() - 0.5) * 0.002;
-            const price = basePrice * (1 + randomChange);
-
-            mockKlines.push({
-              openTime: timestamp - 300000,
-              closeTime: timestamp,
-              open: Number((price * (1 + Math.random() * 0.001)).toFixed(2)),
-              high: Number((price * (1 + Math.random() * 0.002)).toFixed(2)),
-              low: Number((price * (1 - Math.random() * 0.002)).toFixed(2)),
-              close: Number(price.toFixed(2)),
-              volume: Number((Math.random() * 1000).toFixed(2)),
-            });
-          }
-
-          logger.info("mock_data_generated", {
-            symbol,
-            interval,
-            count: mockKlines.length,
-            fallbackReason: "HTTP_451_geographic_restriction"
-          });
-
-          return mockKlines;
-        }
-        throw new Error(`Binance API responded with status ${response.status}`);
-      }
-
-      const body = await response.json();
-
-      if (!Array.isArray(body)) {
-        throw new Error("Unexpected Binance response shape");
-      }
-
-      const klines = body.map(convertToEnhancedKline);
-
-      logger.info("enhanced_fetch_success", {
-        symbol,
-        interval,
-        count: klines.length,
-        firstTime: klines[0].openTime,
-        lastTime: klines[klines.length - 1].closeTime,
-      });
-
-      return klines;
-
-    } catch (error) {
-      lastError = error;
-      logger.warn("enhanced_fetch_error", {
-        symbol,
-        interval,
-        attempt,
-        error: `${error}`,
-      });
-    } finally {
-      clearTimeout(timeout);
     }
 
-    if (attempt < options.maxRetries) {
-      const waitMs =
-        options.backoffBaseMs * Math.pow(2, attempt - 1) +
-        jitter(options.backoffBaseMs);
-
-      logger.info("enhanced_retry_wait", { waitMs, attempt });
-      await delay(waitMs);
-    }
+    return mockKlines;
   }
+};
 
-  logger.error("enhanced_fetch_failed", {
-    symbol,
-    interval,
-    attempts: attempt,
-    lastError: `${lastError}`,
-  });
-
-  throw lastError instanceof Error
-    ? lastError
-    : new Error(`Failed to fetch enhanced klines for ${symbol} after ${options.maxRetries} retries`);
+// 辅助函数：将 interval 字符串转换为毫秒数
+const mapIntervalToMs = (interval: string): number => {
+  const intervalMap: Record<string, number> = {
+    '1m': 1 * 60 * 1000,
+    '3m': 3 * 60 * 1000,
+    '5m': 5 * 60 * 1000,
+    '15m': 15 * 60 * 1000,
+    '30m': 30 * 60 * 1000,
+    '1h': 60 * 60 * 1000,
+    '4h': 4 * 60 * 60 * 1000,
+    '1d': 24 * 60 * 60 * 1000,
+  };
+  return intervalMap[interval] || 5 * 60 * 1000; // 默认 5 分钟
 };
 
 /**
- * 获取交易对的最新价格（用于验证）
+ * 获取交易对的最新价格（使用 Kraken Ticker API）
  */
 export const fetchTickerPrice = async (
   symbol: string,
   options: EnhancedClientOptions
 ): Promise<number> => {
-  const baseUrl = "https://api.binance.com";
-  const url = new URL("/api/v3/ticker/price", baseUrl);
-  url.searchParams.set("symbol", symbol.toUpperCase());
+  const baseUrl = "https://api.kraken.com";
+  const url = new URL("/0/public/Ticker", baseUrl);
+
+  // Kraken symbol mapping
+  const symbolMap: Record<string, string> = {
+    'BTCUSDT': 'XBTUSDT',
+    'ETHUSDT': 'ETHUSDT',
+    'ADAUSDT': 'ADAUSDT',
+    'SOLUSDT': 'SOLUSDT',
+    'DOTUSDT': 'DOTUSDT',
+    'LINKUSDT': 'LINKUSDT',
+    'MATICUSDT': 'MATICUSDT',
+    'AVAXUSDT': 'AVAXUSDT',
+  };
+
+  const krakenSymbol = symbolMap[symbol.toUpperCase()] || symbol.toUpperCase();
+  url.searchParams.set("pair", krakenSymbol);
 
   try {
+    logger.info("kraken_ticker_fetch", { symbol, krakenSymbol });
+
     const response = await fetch(url.toString(), {
       signal: AbortSignal.timeout(options.timeoutMs),
+      headers: {
+        "User-Agent": "Market-Alert/1.0",
+      },
     });
 
     if (!response.ok) {
-      throw new Error(`Ticker API responded with status ${response.status}`);
+      throw new Error(`Kraken Ticker API responded with status ${response.status}`);
     }
 
-    const ticker = await response.json() as { price?: number };
-    return ticker.price || 0;
+    const tickerData = await response.json() as any;
+
+    if (tickerData.error && tickerData.error.length > 0) {
+      throw new Error(`Kraken Ticker API error: ${tickerData.error.join(', ')}`);
+    }
+
+    if (!tickerData.result) {
+      throw new Error("Invalid Kraken ticker response format");
+    }
+
+    // Extract the price from the first trading pair
+    const pairs = Object.keys(tickerData.result);
+    if (pairs.length === 0) {
+      throw new Error("No trading pair data in Kraken ticker response");
+    }
+
+    const pairData = tickerData.result[pairs[0]];
+    if (!pairData || !pairData.c || !Array.isArray(pairData.c) || pairData.c.length === 0) {
+      throw new Error("Invalid price data format from Kraken ticker");
+    }
+
+    const price = Number(pairData.c[0]); // c[0] is the current price
+
+    logger.info("kraken_ticker_success", {
+      symbol,
+      krakenSymbol,
+      price,
+    });
+
+    return price || 0;
   } catch (error) {
-    logger.error("ticker_error", {
+    logger.error("kraken_ticker_error", {
       symbol,
       error: `${error}`,
     });
