@@ -35,7 +35,7 @@ const createSymbolSchema = z.object({
   enabled: z.boolean().optional(),
   threshold_percent: z.number().min(0).max(1).optional(),
   cooldown_minutes: z.number().int().min(1).optional(),
-  webhook_url: z.string().url().optional(),
+  webhook_url: z.string().url().optional().or(z.literal("")),
 });
 
 const updateSymbolSchema = createSymbolSchema.partial().extend({
@@ -106,25 +106,36 @@ admin.post("/admin/symbols", async (c) => {
     throw badRequest("Invalid symbol payload", { issues: parse.error.issues });
   }
 
-  const existing = await getSymbol(c.env.DB, parse.data.symbol);
+  const symbolUpper = parse.data.symbol.toUpperCase();
+  console.log(`[ADMIN] Creating symbol: ${symbolUpper}`, {
+    enabled: parse.data.enabled,
+    threshold_percent: parse.data.threshold_percent,
+    cooldown_minutes: parse.data.cooldown_minutes,
+    webhook_url: parse.data.webhook_url === "" ? null : parse.data.webhook_url,
+  });
+
+  const existing = await getSymbol(c.env.DB, symbolUpper);
   if (existing) {
     throw conflict("Symbol already exists");
   }
 
   try {
     const record = await createSymbol(c.env.DB, {
-      symbol: parse.data.symbol,
+      symbol: symbolUpper,
       enabled: parse.data.enabled,
       thresholdPercent: parse.data.threshold_percent,
       cooldownMinutes: parse.data.cooldown_minutes,
-      webhookUrl: parse.data.webhook_url,
+      webhookUrl: parse.data.webhook_url === "" ? null : parse.data.webhook_url,
     });
+
+    console.log(`[ADMIN] Successfully created symbol: ${symbolUpper}`);
 
     return c.json({
       success: true,
       data: serializeSymbol(record),
     });
   } catch (error) {
+    console.error(`[ADMIN] Failed to create symbol: ${symbolUpper}`, error);
     throw badRequest("Failed to create symbol", { error: `${error}` });
   }
 });
@@ -146,7 +157,7 @@ admin.put("/admin/symbols/:symbol", async (c) => {
     enabled: parse.data.enabled,
     thresholdPercent: parse.data.threshold_percent,
     cooldownMinutes: parse.data.cooldown_minutes,
-    webhookUrl: parse.data.webhook_url,
+    webhookUrl: parse.data.webhook_url === "" ? null : parse.data.webhook_url,
   });
 
   if (!record) {

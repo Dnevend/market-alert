@@ -27,6 +27,7 @@ const mapSymbolToKraken = (symbol: string): string => {
     'LINKUSDT': 'LINKUSDT',
     'MATICUSDT': 'MATICUSDT',
     'AVAXUSDT': 'AVAXUSDT',
+    'ZECUSDT': 'ZECUSDT',
   };
 
   return symbolMap[symbol.toUpperCase()] || symbol.toUpperCase();
