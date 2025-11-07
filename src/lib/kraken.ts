@@ -48,8 +48,12 @@ const mapIntervalToKraken = (interval: string): string => {
   return intervalMap[interval] || '5'; // Default to 5 minutes
 };
 
-const jitter = (base: number) => Math.random() * base;
+const jitter = (base: number) => Math.random() * base * 0.5; // 减少随机性
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// 添加请求缓存，避免短时间内重复调用相同的数据
+const requestCache = new Map<string, { data: KrakenOHLC[], timestamp: number }>();
+const CACHE_TTL = 30000; // 30秒缓存
 
 export const buildKrakenOHLCUrl = (
   baseUrl: string,
@@ -75,6 +79,16 @@ export const fetchKrakenOHLC = async (
   options: KrakenClientOptions,
   count = 2
 ): Promise<KrakenOHLC[]> => {
+  // 检查缓存
+  const cacheKey = `${symbol}-${interval}-${count}`;
+  const cached = requestCache.get(cacheKey);
+  const now = Date.now();
+
+  if (cached && (now - cached.timestamp) < CACHE_TTL) {
+    logger.info("kraken_cache_hit", { symbol, interval, cacheAge: now - cached.timestamp });
+    return cached.data;
+  }
+
   const url = buildKrakenOHLCUrl(options.baseUrl, symbol, interval);
 
   let attempt = 0;
@@ -153,6 +167,9 @@ export const fetchKrakenOHLC = async (
         latestTime: parsed[parsed.length - 1]?.time,
         close: parsed[parsed.length - 1]?.close,
       });
+
+      // 缓存结果
+      requestCache.set(cacheKey, { data: parsed, timestamp: Date.now() });
 
       return parsed;
 

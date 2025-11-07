@@ -186,34 +186,10 @@ export const fetchEnhancedKlines = async (
       error: `${error}`,
     });
 
-    // 降级到模拟数据
-    logger.warn("fallback_to_mock_data", {
-      symbol,
-      interval,
-      reason: "kraken_api_error"
-    });
-
-    const now = Date.now();
-    const mockKlines: EnhancedKline[] = [];
-
-    for (let i = limit - 1; i >= 0; i--) {
-      const timestamp = now - (i * 5 * 60 * 1000);
-      const basePrice = symbol.includes('BTC') ? 108000 : symbol.includes('ETH') ? 3800 : 100;
-      const randomChange = (Math.random() - 0.5) * 0.002;
-      const price = basePrice * (1 + randomChange);
-
-      mockKlines.push({
-        openTime: timestamp - 300000,
-        closeTime: timestamp,
-        open: Number((price * (1 + Math.random() * 0.001)).toFixed(2)),
-        high: Number((price * (1 + Math.random() * 0.002)).toFixed(2)),
-        low: Number((price * (1 - Math.random() * 0.002)).toFixed(2)),
-        close: Number(price.toFixed(2)),
-        volume: Number((Math.random() * 1000).toFixed(2)),
-      });
-    }
-
-    return mockKlines;
+    // 不再降级到模拟数据，直接抛出错误
+    throw error instanceof Error
+      ? error
+      : new Error(`Failed to fetch Kraken OHLC data for ${symbol}`);
   }
 };
 

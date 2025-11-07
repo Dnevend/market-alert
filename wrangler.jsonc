@@ -10,7 +10,10 @@
     "WEBHOOK_DEFAULT_URL": "https://fwalert.com/xxx",
     "WEBHOOK_HMAC_SECRET": "dev-secret-key-change-in-production",
     "ADMIN_BEARER_TOKEN": "dev-admin-token-change-in-production",
-    "JWT_SECRET": "dev-jwt-secret-key-change-in-production-32-chars-minimum"
+    "JWT_SECRET": "dev-jwt-secret-key-change-in-production-32-chars-minimum",
+    "HTTP_TIMEOUT_MS": "5000",
+    "MAX_RETRIES": "2",
+    "RETRY_BACKOFF_BASE_MS": "1000"
   },
   "d1_databases": [
     {
