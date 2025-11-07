@@ -151,6 +151,7 @@ export const fetchKrakenOHLC = async (
         interval,
         dataPoints: parsed.length,
         latestTime: parsed[parsed.length - 1]?.time,
+        close: parsed[parsed.length - 1]?.close,
       });
 
       return parsed;
