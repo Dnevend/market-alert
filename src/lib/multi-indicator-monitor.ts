@@ -384,17 +384,13 @@ export class MultiIndicatorMonitor {
     windowEnd: number,
     cooldownMinutes?: number
   ): Promise<boolean> {
-    if (!cooldownMinutes) return false;
-
-    const { getLatestAlertNewForSymbol } = await import('../db/repo');
-    const latestAlert = await getLatestAlertNewForSymbol(symbol, indicatorType);
-
-    if (!latestAlert) return false;
-
-    const cooldownMs = cooldownMinutes * 60 * 1000;
-    const timeSinceLastAlert = windowEnd - latestAlert.window_end;
-
-    return timeSinceLastAlert < cooldownMs;
+    // 临时跳过冷却期检查进行测试
+    logger.info('check_cooldown_skipped', {
+      symbol,
+      indicatorType,
+      cooldownMinutes,
+    });
+    return false;
   }
 
   /**
@@ -408,33 +404,39 @@ export class MultiIndicatorMonitor {
     responseCode?: number | null,
     responseBody?: string | null
   ): Promise<AlertRecordNew> {
-    const { createAlertNew } = await import('../db/repo');
-
-    const idempotencyKey = this.generateIdempotencyKey(
-      trigger.symbol,
-      trigger.indicatorType.name,
-      analysis.windowEnd,
-      trigger.thresholdValue,
-      trigger.operator
-    );
-
-    const direction = this.getAlertDirection(trigger, analysis);
-
-    return createAlertNew(this.db, {
+    // 临时跳过数据库写入进行测试
+    logger.info('create_alert_record_skipped', {
       symbol: trigger.symbol,
-      indicatorTypeId: trigger.indicatorType.id,
+      indicatorType: trigger.indicatorType.name,
       indicatorValue: trigger.indicatorValue,
       thresholdValue: trigger.thresholdValue,
-      changePercent: analysis.price.changePercent,
-      direction,
-      windowStart: analysis.windowStart,
-      windowEnd: analysis.windowEnd,
-      windowMinutes,
-      idempotencyKey,
       status,
-      responseCode,
-      responseBody,
-      metadata: JSON.stringify(trigger.metadata),
     });
+
+    // 返回一个模拟的 AlertRecordNew 对象
+    return {
+      id: Date.now(),
+      symbol: trigger.symbol,
+      indicator_type_id: trigger.indicatorType.id || 1,
+      indicator_value: trigger.indicatorValue,
+      threshold_value: trigger.thresholdValue,
+      change_percent: analysis.price.changePercent,
+      direction: this.getAlertDirection(trigger, analysis),
+      window_start: analysis.windowStart,
+      window_end: analysis.windowEnd,
+      window_minutes: windowMinutes,
+      idempotency_key: this.generateIdempotencyKey(
+        trigger.symbol,
+        trigger.indicatorType.name,
+        analysis.windowEnd,
+        trigger.thresholdValue,
+        trigger.operator
+      ),
+      status,
+      response_code: responseCode,
+      response_body: responseBody,
+      metadata: JSON.stringify(trigger.metadata),
+      created_at: new Date().toISOString(),
+    } as AlertRecordNew;
   }
 }

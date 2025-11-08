@@ -351,7 +351,16 @@ export const getSymbolIndicators = async (
   indicatorType?: string
 ): Promise<SymbolIndicatorRecord[]> => {
   let query = `
-    SELECT si.*, it.name as indicator_name, it.display_name, it.unit
+    SELECT
+      si.*,
+      it.name as indicator_name,
+      it.display_name,
+      it.unit,
+      it.id as indicator_type_id,
+      it.name as indicator_type_name,
+      it.description as indicator_type_description,
+      it.is_active as indicator_type_is_active,
+      it.created_at as indicator_type_created_at
     FROM symbol_indicators si
     JOIN indicator_types it ON si.indicator_type_id = it.id
     WHERE si.enabled = 1 AND it.is_active = 1
@@ -370,8 +379,21 @@ export const getSymbolIndicators = async (
 
   query += " ORDER BY si.symbol, si.indicator_type_id";
 
-  const { results } = await db.prepare(query).bind(...params).all<SymbolIndicatorRecord>();
-  return results ?? [];
+  const { results } = await db.prepare(query).bind(...params).all<any>();
+
+  // Transform the results to include indicatorType object
+  return (results ?? []).map(row => ({
+    ...row,
+    indicatorType: {
+      id: row.indicator_type_id,
+      name: row.indicator_type_name,
+      display_name: row.display_name,
+      description: row.indicator_type_description,
+      unit: row.unit,
+      is_active: row.indicator_type_is_active,
+      created_at: row.indicator_type_created_at
+    }
+  }));
 };
 
 export const getSymbolIndicator = async (
