@@ -150,8 +150,65 @@ export default {
     ctx.waitUntil(
       (async () => {
         try {
-          const results = await runMonitor(env as CloudflareBindings);
-          logger.info("cron_completed", { results });
+          // 同时运行传统监控和多指标监控
+          const promises = [];
+
+          // 1. 运行传统监控（确保兼容性）
+          logger.info("cron_starting_legacy_monitor");
+          promises.push(
+            (async () => {
+              try {
+                const legacyResults = await runMonitor(env as CloudflareBindings);
+                logger.info("cron_legacy_completed", { results: legacyResults, monitorType: "legacy" });
+                return legacyResults;
+              } catch (error) {
+                  logger.error("cron_legacy_failed", { error: `${error}` });
+                  return [];
+                }
+              })()
+          );
+
+          // 2. 检查并运行多指标监控（如果有配置）
+          const { getSymbolIndicators } = await import("./db/repo");
+          const multiIndicatorConfigs = await getSymbolIndicators(env.DB);
+
+          if (multiIndicatorConfigs.length > 0) {
+            logger.info("cron_starting_multi_indicator_monitor", {
+              indicatorCount: multiIndicatorConfigs.length,
+              symbols: [...new Set(multiIndicatorConfigs.map(c => c.symbol))]
+            });
+
+            promises.push(
+              (async () => {
+                try {
+                  const { runMultiIndicatorMonitor } = await import("./lib/monitor");
+                  const multiResults = await runMultiIndicatorMonitor(env as CloudflareBindings, {
+                    useMultiIndicators: true,
+                    symbols: undefined, // 监控所有启用的符号
+                  });
+                  logger.info("cron_multi_indicator_completed", { results: multiResults, monitorType: "multi-indicator" });
+                  return multiResults;
+                } catch (error) {
+                  logger.error("cron_multi_indicator_failed", { error: `${error}` });
+                  return [];
+                }
+              })()
+            );
+          } else {
+            logger.info("cron_no_multi_indicator_configs", { reason: "skipping_multi_indicator_monitor" });
+          }
+
+          // 等待所有监控完成
+          const allResults = await Promise.allSettled(promises);
+
+          logger.info("cron_all_monitors_completed", {
+            legacyMonitorStatus: allResults[0].status,
+            multiIndicatorStatus: allResults[1]?.status || 'skipped',
+            totalResults: allResults.filter(r => r.status === 'fulfilled').length,
+            triggeredCount: allResults.reduce((sum, result) =>
+              sum + (result.status === 'fulfilled' ? result.value?.filter?.(r => r.triggered)?.length || 0 : 0), 0)
+          });
+
         } catch (error) {
           logger.error("cron_failed", { error: `${error}` });
         }
